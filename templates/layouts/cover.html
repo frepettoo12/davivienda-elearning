@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <link rel="stylesheet" href="../css/brand.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <style>
+    /* ============================================
+       LAYOUT: COVER / PORTADA
+       Para intros y cierres de modulo
+       ============================================ */
+
+    body {
+      background: linear-gradient(135deg, #FAFAFA 0%, #F0F0F0 100%);
+    }
+
+    .layout-cover {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Logo esquina superior izquierda */
+    .cover-logo {
+      position: absolute;
+      top: var(--space-lg);
+      left: var(--space-xl);
+    }
+
+    /* Contenido central */
+    .cover-content {
+      text-align: center;
+      max-width: 1200px;
+      padding: var(--space-2xl);
+    }
+
+    .cover-badge {
+      display: inline-block;
+      background: var(--davi-red);
+      color: white;
+      padding: var(--space-sm) var(--space-xl);
+      border-radius: var(--radius-full);
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: var(--text-lg);
+      margin-bottom: var(--space-xl);
+    }
+
+    .cover-title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 80px;
+      color: var(--black);
+      line-height: 1.1;
+      margin-bottom: var(--space-lg);
+    }
+
+    .cover-title .highlight {
+      color: var(--davi-red);
+    }
+
+    .cover-subtitle {
+      font-family: var(--font-body);
+      font-size: var(--text-xl);
+      color: var(--gray-700);
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    /* Decorador inferior */
+    .cover-footer {
+      position: absolute;
+      bottom: var(--space-xl);
+      left: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      gap: var(--space-lg);
+    }
+
+    .cover-footer-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      color: var(--gray-500);
+      font-size: var(--text-sm);
+    }
+
+    .cover-footer-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--davi-red);
+    }
+
+    /* Elementos decorativos */
+    .deco-circle {
+      position: absolute;
+      border-radius: 50%;
+      opacity: 0.05;
+      background: var(--davi-red);
+    }
+
+    .deco-circle-1 {
+      width: 400px;
+      height: 400px;
+      top: -100px;
+      right: -100px;
+    }
+
+    .deco-circle-2 {
+      width: 300px;
+      height: 300px;
+      bottom: -50px;
+      left: -50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-accent"></div>
+
+  <!-- Elementos decorativos -->
+  <div class="deco-circle deco-circle-1"></div>
+  <div class="deco-circle deco-circle-2"></div>
+
+  <div class="layout-cover">
+    <!-- Logo -->
+    <div class="cover-logo davi-logo">
+      <div class="davi-logo-house">
+        <svg viewBox="0 0 55 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M27.5 0L55 22H45V50H10V22H0L27.5 0Z" fill="#DA291C"/>
+          <rect x="22" y="30" width="11" height="20" fill="white"/>
+        </svg>
+      </div>
+      <span class="davi-logo-text">DAVIVIENDA</span>
+    </div>
+
+    <!-- Contenido -->
+    <div class="cover-content">
+      <div class="cover-badge">MODULO 2</div>
+      <h1 class="cover-title">
+        Tipos de <span class="highlight">Portales</span><br>
+        Transaccionales
+      </h1>
+      <p class="cover-subtitle">
+        Conoce los tres tipos de portales que Davivienda ofrece
+        para gestionar las operaciones de tu empresa.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="cover-footer">
+      <div class="cover-footer-item">
+        <svg class="cover-footer-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+        <span>Banca Empresas</span>
+      </div>
+      <div class="cover-footer-item">
+        <svg class="cover-footer-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+        </svg>
+        <span>5 minutos</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar"></div>
+</body>
+</html>

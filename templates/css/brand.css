@@ -1,0 +1,187 @@
+/* ============================================
+   DAVIVIENDA BRAND SYSTEM
+   Variables y estilos base de marca
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600&display=swap');
+
+:root {
+  /* Colores principales */
+  --davi-red: #DA291C;
+  --davi-red-dark: #B71C1C;
+  --davi-red-light: #FFEBEE;
+  --davi-yellow: #FFD700;
+  --davi-blue: #1E3A8A;
+
+  /* Neutros */
+  --black: #1A1A1A;
+  --gray-900: #2D2D2D;
+  --gray-700: #4A4A4A;
+  --gray-500: #9E9E9E;
+  --gray-300: #E0E0E0;
+  --gray-100: #F8F8F8;
+  --white: #FFFFFF;
+
+  /* Estados */
+  --success: #4CAF50;
+  --warning: #FF9800;
+  --error: #F44336;
+  --info: #2196F3;
+
+  /* Fuentes */
+  --font-display: 'Montserrat', sans-serif;
+  --font-body: 'Open Sans', sans-serif;
+
+  /* Tamaños de fuente */
+  --text-xs: 14px;
+  --text-sm: 16px;
+  --text-base: 18px;
+  --text-lg: 22px;
+  --text-xl: 26px;
+  --text-2xl: 32px;
+  --text-3xl: 42px;
+  --text-4xl: 56px;
+  --text-5xl: 72px;
+
+  /* Espaciado */
+  --space-xs: 8px;
+  --space-sm: 16px;
+  --space-md: 24px;
+  --space-lg: 32px;
+  --space-xl: 48px;
+  --space-2xl: 64px;
+
+  /* Bordes */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Sombras */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.12);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.16);
+
+  /* Dimensiones de video */
+  --video-width: 1920px;
+  --video-height: 1080px;
+}
+
+/* Reset base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--white);
+  width: var(--video-width);
+  height: var(--video-height);
+  overflow: hidden;
+  position: relative;
+  color: var(--gray-700);
+  line-height: 1.6;
+}
+
+/* ============================================
+   LOGO DAVIVIENDA
+   ============================================ */
+
+.davi-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.davi-logo-house {
+  width: 55px;
+  height: 50px;
+}
+
+.davi-logo-text {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--text-base);
+  color: var(--davi-red);
+  letter-spacing: 1px;
+}
+
+/* SVG de la casita - usar inline */
+.davi-logo-house svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ============================================
+   TIPOGRAFIA
+   ============================================ */
+
+.heading-1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--text-4xl);
+  line-height: 1.15;
+  color: var(--black);
+}
+
+.heading-2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-3xl);
+  line-height: 1.2;
+  color: var(--black);
+}
+
+.heading-3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-2xl);
+  line-height: 1.3;
+  color: var(--black);
+}
+
+.heading-4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-xl);
+  line-height: 1.4;
+  color: var(--black);
+}
+
+.body-lg {
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  line-height: 1.7;
+}
+
+.body-base {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.6;
+}
+
+.body-sm {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.subtitle {
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  font-style: italic;
+  color: var(--gray-500);
+}
+
+/* Utilidades de texto */
+.text-red { color: var(--davi-red); }
+.text-white { color: var(--white); }
+.text-dark { color: var(--black); }
+.text-muted { color: var(--gray-500); }
+.text-bold { font-weight: 700; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <link rel="stylesheet" href="../css/brand.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <style>
+    /* ============================================
+       LAYOUT: AVATAR SPLIT
+       Avatar izquierda (35%) + Contenido derecha (65%)
+       ============================================ */
+
+    .layout-split {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      position: relative;
+    }
+
+    /* Zona del avatar (izquierda) */
+    .avatar-zone {
+      width: 35%;
+      height: 100%;
+      position: relative;
+      background: var(--gray-100);
+      overflow: hidden;
+    }
+
+    /* Placeholder para el video del avatar */
+    .avatar-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #2A2A2A 0%, #1A1A1A 100%);
+    }
+
+    .avatar-placeholder-text {
+      color: var(--gray-500);
+      font-family: var(--font-display);
+      font-size: var(--text-sm);
+      text-align: center;
+    }
+
+    /* Zona de contenido (derecha) */
+    .content-zone {
+      width: 65%;
+      height: 100%;
+      position: relative;
+      padding: var(--space-xl);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header del contenido */
+    .content-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: var(--space-lg);
+    }
+
+    /* Cuerpo del contenido */
+    .content-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* Caption inferior (tema actual) */
+    .caption-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0,0,0,0.85);
+      padding: var(--space-sm) var(--space-lg);
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .caption-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--davi-red);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+    }
+
+    .caption-text {
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: var(--text-lg);
+    }
+
+    .caption-subtitle {
+      color: var(--gray-300);
+      font-size: var(--text-sm);
+      margin-top: 2px;
+    }
+
+    /* Decorador lateral */
+    .side-accent {
+      position: absolute;
+      left: 35%;
+      top: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--davi-red);
+    }
+  </style>
+</head>
+<body>
+  <div class="top-accent"></div>
+  <div class="bg-pattern-diagonal"></div>
+
+  <div class="layout-split">
+    <!-- Zona Avatar (sera reemplazada por video en composicion) -->
+    <div class="avatar-zone">
+      <div class="avatar-placeholder">
+        <div class="avatar-placeholder-text">
+          AVATAR<br>VIDEO<br>672x1080
+        </div>
+      </div>
+    </div>
+
+    <!-- Decorador lateral -->
+    <div class="side-accent"></div>
+
+    <!-- Zona Contenido -->
+    <div class="content-zone">
+      <!-- Header -->
+      <div class="content-header">
+        <!-- Logo -->
+        <div class="davi-logo">
+          <div class="davi-logo-house">
+            <svg viewBox="0 0 55 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M27.5 0L55 22H45V50H10V22H0L27.5 0Z" fill="#DA291C"/>
+              <rect x="22" y="30" width="11" height="20" fill="white"/>
+            </svg>
+          </div>
+          <span class="davi-logo-text">DAVIVIENDA</span>
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-bar">
+          <div class="progress-arrows">
+            <div class="progress-arrow completed"></div>
+            <div class="progress-arrow active"></div>
+            <div class="progress-arrow"></div>
+            <div class="progress-arrow"></div>
+          </div>
+          <div class="progress-number">2</div>
+          <div class="progress-label">Tipos de<br>Portales</div>
+        </div>
+      </div>
+
+      <!-- Contenido principal -->
+      <div class="content-body">
+        <!-- PERSONALIZAR ESTE CONTENIDO -->
+        <h2 class="heading-2 mb-md">Titulo del Contenido</h2>
+
+        <div class="card mb-lg">
+          <div class="flex items-start gap-md">
+            <div class="icon-circle">1</div>
+            <div>
+              <h3 class="heading-4 mb-sm">Punto Principal</h3>
+              <p class="body-lg">Descripcion del contenido que aparece mientras el avatar habla.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-md">
+          <div class="badge">Dato 1</div>
+          <div class="badge">Dato 2</div>
+          <div class="badge-outline badge">Dato 3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Caption inferior -->
+  <div class="caption-bar">
+    <div class="caption-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div>
+      <div class="caption-text">Tipos de Portales Transaccionales</div>
+      <div class="caption-subtitle">Banca Empresas - Modulo 2</div>
+    </div>
+  </div>
+
+  <div class="bottom-bar"></div>
+</body>
+</html>

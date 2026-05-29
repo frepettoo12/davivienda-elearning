@@ -1,0 +1,360 @@
+/* ============================================
+   COMPONENTES INTERACTIVOS
+   Botones reveal, modales, tooltips
+   Importar despues de components.css
+   ============================================ */
+
+/* ============================================
+   REVEAL BUTTONS
+   Botones clickeables que abren modales
+   ============================================ */
+
+.reveal-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--white);
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-md);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.reveal-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+
+.reveal-btn:active {
+  transform: translateY(0);
+}
+
+.reveal-btn-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reveal-btn-icon.heart {
+  background: var(--davi-red-light);
+}
+
+.reveal-btn-icon.heart svg {
+  fill: var(--davi-red);
+  width: 24px;
+  height: 24px;
+}
+
+.reveal-btn-icon.star {
+  background: #FFF3E0;
+}
+
+.reveal-btn-icon.star svg {
+  fill: #FF9800;
+  width: 24px;
+  height: 24px;
+}
+
+.reveal-btn-icon.info {
+  background: #E3F2FD;
+}
+
+.reveal-btn-icon.info svg {
+  fill: #2196F3;
+  width: 24px;
+  height: 24px;
+}
+
+.reveal-btn-icon.check {
+  background: #E8F5E9;
+}
+
+.reveal-btn-icon.check svg {
+  fill: #4CAF50;
+  width: 24px;
+  height: 24px;
+}
+
+.reveal-btn-text {
+  flex: 1;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--black);
+}
+
+.reveal-btn-arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--gray-300);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.reveal-btn-arrow svg {
+  fill: var(--gray-500);
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s ease;
+}
+
+.reveal-btn:hover .reveal-btn-arrow {
+  border-color: var(--davi-red);
+  background: var(--davi-red);
+}
+
+.reveal-btn:hover .reveal-btn-arrow svg {
+  fill: var(--white);
+  transform: translateX(2px);
+}
+
+/* ============================================
+   INFO BADGE (no clickeable)
+   ============================================ */
+
+.info-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  max-width: 400px;
+}
+
+.info-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--davi-red);
+}
+
+.info-badge-icon svg {
+  fill: var(--white);
+  width: 22px;
+  height: 22px;
+}
+
+.info-badge-text {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--black);
+}
+
+/* ============================================
+   MODAL OVERLAY
+   ============================================ */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-content {
+  background: var(--white);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  transform: scale(0.9) translateY(20px);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.modal-overlay.active .modal-content {
+  transform: scale(1) translateY(0);
+}
+
+.modal-close {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  background: var(--gray-300);
+}
+
+.modal-close svg {
+  width: 20px;
+  height: 20px;
+  fill: var(--gray-700);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-2xl);
+  color: var(--davi-red);
+  margin-bottom: var(--space-lg);
+  padding-right: 50px;
+}
+
+.modal-body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--gray-700);
+  line-height: 1.7;
+}
+
+.modal-body ul {
+  list-style: none;
+  padding: 0;
+}
+
+.modal-body ul li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.modal-body ul li::before {
+  content: "•";
+  color: var(--davi-red);
+  font-weight: 700;
+  font-size: var(--text-lg);
+  line-height: 1.5;
+}
+
+/* ============================================
+   LAYOUT INTERACTIVO
+   Para paginas con botones reveal
+   ============================================ */
+
+.interactive-layout {
+  width: 100%;
+  height: 100%;
+  padding: var(--space-xl) var(--space-2xl);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.interactive-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-xl);
+}
+
+.interactive-main {
+  flex: 1;
+  display: flex;
+  gap: var(--space-xl);
+  align-items: center;
+  max-width: 1400px;
+}
+
+.interactive-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.interactive-sidebar {
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Decorador visual estilo Uxplora */
+.deco-wave {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 300px;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco-wave::before {
+  content: "";
+  position: absolute;
+  right: -200px;
+  top: -150px;
+  width: 450px;
+  height: 450px;
+  background: var(--davi-red);
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+.deco-wave::after {
+  content: "";
+  position: absolute;
+  right: -220px;
+  bottom: -150px;
+  width: 400px;
+  height: 400px;
+  background: var(--davi-red);
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+/* Mascota/logo en esquina */
+.mascot {
+  position: absolute;
+  top: var(--space-lg);
+  left: var(--space-lg);
+  width: 80px;
+  height: 80px;
+}
+
+.mascot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

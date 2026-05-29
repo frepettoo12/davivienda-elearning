@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{COURSE_TITLE}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #1a1a2e;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+
+        .progress-bar {
+            background: rgba(255,255,255,0.2);
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+
+        .progress-fill {
+            background: #4ade80;
+            height: 100%;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        /* Video Section */
+        .video-section {
+            margin-bottom: 30px;
+        }
+
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%;
+            height: 0;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .video-container video,
+        .video-container audio {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .audio-player {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .audio-player audio {
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .audio-visual {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        /* Quiz Section */
+        .quiz-section {
+            display: none;
+        }
+
+        .quiz-section.active {
+            display: block;
+        }
+
+        .question-card {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .question-card.answered-correct {
+            border-color: #4ade80;
+            background: #f0fdf4;
+        }
+
+        .question-card.answered-wrong {
+            border-color: #f87171;
+            background: #fef2f2;
+        }
+
+        .question-number {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 10px;
+        }
+
+        .question-text {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 20px;
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .option {
+            padding: 15px 20px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .option:hover:not(.disabled) {
+            border-color: #667eea;
+            background: #f8fafc;
+        }
+
+        .option.selected {
+            border-color: #667eea;
+            background: #eef2ff;
+        }
+
+        .option.correct {
+            border-color: #4ade80;
+            background: #f0fdf4;
+        }
+
+        .option.wrong {
+            border-color: #f87171;
+            background: #fef2f2;
+        }
+
+        .option.disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .option-marker {
+            width: 28px;
+            height: 28px;
+            border: 2px solid #cbd5e1;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+
+        .option.selected .option-marker {
+            background: #667eea;
+            border-color: #667eea;
+            color: white;
+        }
+
+        .option.correct .option-marker {
+            background: #4ade80;
+            border-color: #4ade80;
+            color: white;
+        }
+
+        .option.wrong .option-marker {
+            background: #f87171;
+            border-color: #f87171;
+            color: white;
+        }
+
+        .feedback {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .feedback.show {
+            display: block;
+        }
+
+        .feedback.correct {
+            background: #f0fdf4;
+            color: #166534;
+        }
+
+        .feedback.wrong {
+            background: #fef2f2;
+            color: #991b1b;
+        }
+
+        /* Drag & Drop Section */
+        .drag-drop-section {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .drag-drop-section.active {
+            display: block;
+        }
+
+        .dd-instruction {
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+            color: #374151;
+        }
+
+        .dd-container {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .dd-items {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .dd-zones {
+            flex: 1;
+            min-width: 250px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .dd-item {
+            padding: 12px 16px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: grab;
+            transition: all 0.2s ease;
+        }
+
+        .dd-item:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .dd-item.dragging {
+            opacity: 0.5;
+        }
+
+        .drop-zone {
+            min-height: 120px;
+            border: 3px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 15px;
+            background: #f8fafc;
+        }
+
+        .drop-zone h3 {
+            color: #64748b;
+            margin-bottom: 15px;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .drop-zone.dragover {
+            border-color: #667eea;
+            background: #eef2ff;
+        }
+
+        .drop-zone .dd-item {
+            cursor: default;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #475569;
+        }
+
+        .actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+            justify-content: center;
+        }
+
+        /* Results */
+        .results {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .results-icon {
+            font-size: 5rem;
+            margin-bottom: 20px;
+        }
+
+        .results h2 {
+            font-size: 2rem;
+            color: #1a1a2e;
+            margin-bottom: 15px;
+        }
+
+        .score {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #667eea;
+            margin: 20px 0;
+        }
+
+        .score-detail {
+            color: #64748b;
+            margin-bottom: 30px;
+        }
+
+        /* Navigation */
+        .nav-tabs {
+            display: flex;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 25px;
+        }
+
+        .nav-tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            font-weight: 500;
+            color: #64748b;
+            transition: all 0.2s ease;
+        }
+
+        .nav-tab:hover {
+            color: #667eea;
+        }
+
+        .nav-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{COURSE_TITLE}}</h1>
+            <p>Duración estimada: {{DURATION}}</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="nav-tabs">
+                <div class="nav-tab active" data-section="video">📹 Contenido</div>
+                <div class="nav-tab" data-section="quiz">📝 Evaluación</div>
+                <div class="nav-tab" data-section="dragdrop">🎯 Ejercicio</div>
+            </div>
+
+            <!-- Video/Audio Section -->
+            <div class="section active" id="section-video">
+                <div class="video-section">
+                    {{VIDEO_CONTENT}}
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary" onclick="goToSection('quiz')">
+                        Continuar a la evaluación →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quiz Section -->
+            <div class="section" id="section-quiz">
+                <div class="quiz-section active" id="quizContainer">
+                    {{QUIZ_CONTENT}}
+                </div>
+                <div class="actions">
+                    <button class="btn btn-secondary" onclick="goToSection('video')">← Volver</button>
+                    <button class="btn btn-primary" onclick="checkQuiz()">Verificar respuestas</button>
+                    <button class="btn btn-primary" onclick="goToSection('dragdrop')" style="display:none" id="btnNextExercise">
+                        Siguiente ejercicio →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Drag & Drop Section -->
+            <div class="section" id="section-dragdrop">
+                <div class="drag-drop-section active">
+                    <p class="dd-instruction">{{DD_INSTRUCTION}}</p>
+                    <div class="dd-container">
+                        <div class="dd-items" id="ddItems">
+                            {{DD_ITEMS}}
+                        </div>
+                        <div class="dd-zones">
+                            {{DD_ZONES}}
+                        </div>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-secondary" onclick="goToSection('quiz')">← Volver</button>
+                    <button class="btn btn-primary" onclick="checkDragDrop()">Verificar</button>
+                    <button class="btn btn-primary" onclick="showResults()" style="display:none" id="btnResults">
+                        Ver resultados →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="results" id="resultsSection">
+                <div class="results-icon" id="resultsIcon">🏆</div>
+                <h2 id="resultsTitle">¡Felicitaciones!</h2>
+                <div class="score" id="scoreDisplay">0%</div>
+                <p class="score-detail" id="scoreDetail">Respondiste correctamente X de Y preguntas</p>
+                <div class="actions">
+                    <button class="btn btn-primary" onclick="finishCourse()">Finalizar curso</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCORM API Wrapper -->
+    <script>
+        // SCORM 1.2 API Wrapper
+        var scorm = {
+            api: null,
+            initialized: false,
+
+            findAPI: function(win) {
+                var findAttempts = 0;
+                while ((win.API == null) && (win.parent != null) && (win.parent != win)) {
+                    findAttempts++;
+                    if (findAttempts > 7) return null;
+                    win = win.parent;
+                }
+                return win.API;
+            },
+
+            init: function() {
+                this.api = this.findAPI(window);
+                if (this.api == null && window.opener) {
+                    this.api = this.findAPI(window.opener);
+                }
+                if (this.api) {
+                    this.api.LMSInitialize("");
+                    this.initialized = true;
+                    console.log("SCORM initialized");
+                } else {
+                    console.log("SCORM API not found - running in standalone mode");
+                }
+            },
+
+            setValue: function(element, value) {
+                if (this.api) {
+                    this.api.LMSSetValue(element, value);
+                    this.api.LMSCommit("");
+                }
+            },
+
+            getValue: function(element) {
+                if (this.api) {
+                    return this.api.LMSGetValue(element);
+                }
+                return "";
+            },
+
+            setScore: function(score) {
+                this.setValue("cmi.core.score.raw", score);
+                this.setValue("cmi.core.score.min", "0");
+                this.setValue("cmi.core.score.max", "100");
+            },
+
+            setStatus: function(status) {
+                // status: "completed", "incomplete", "passed", "failed"
+                this.setValue("cmi.core.lesson_status", status);
+            },
+
+            finish: function() {
+                if (this.api) {
+                    this.api.LMSFinish("");
+                }
+            }
+        };
+
+        // Initialize SCORM on load
+        window.onload = function() {
+            scorm.init();
+            scorm.setStatus("incomplete");
+        };
+
+        window.onbeforeunload = function() {
+            scorm.finish();
+        };
+    </script>
+
+    <!-- Course Logic -->
+    <script>
+        // Quiz data (injected by Python)
+        var quizData = {{QUIZ_DATA}};
+        var ddData = {{DD_DATA}};
+
+        var quizAnswers = {};
+        var ddAnswers = {};
+        var quizChecked = false;
+        var ddChecked = false;
+
+        // Navigation
+        function goToSection(section) {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+
+            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+            document.getElementById(`section-${section}`).classList.add('active');
+
+            updateProgress();
+        }
+
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => goToSection(tab.dataset.section));
+        });
+
+        // Quiz logic
+        function selectOption(questionId, optionIndex) {
+            if (quizChecked) return;
+
+            quizAnswers[questionId] = optionIndex;
+
+            // Update UI
+            document.querySelectorAll(`#question-${questionId} .option`).forEach((opt, i) => {
+                opt.classList.toggle('selected', i === optionIndex);
+            });
+        }
+
+        function checkQuiz() {
+            if (quizChecked) return;
+            quizChecked = true;
+
+            let correct = 0;
+            quizData.forEach((q, i) => {
+                const questionEl = document.getElementById(`question-${q.id}`);
+                const options = questionEl.querySelectorAll('.option');
+                const feedback = questionEl.querySelector('.feedback');
+
+                const userAnswer = quizAnswers[q.id];
+                const isCorrect = userAnswer === q.correct;
+
+                if (isCorrect) correct++;
+
+                options.forEach((opt, j) => {
+                    opt.classList.add('disabled');
+                    if (j === q.correct) opt.classList.add('correct');
+                    if (j === userAnswer && !isCorrect) opt.classList.add('wrong');
+                });
+
+                questionEl.classList.add(isCorrect ? 'answered-correct' : 'answered-wrong');
+                feedback.textContent = q.feedback;
+                feedback.classList.add('show', isCorrect ? 'correct' : 'wrong');
+            });
+
+            document.getElementById('btnNextExercise').style.display = 'inline-block';
+            updateProgress();
+        }
+
+        // Drag & Drop logic
+        function initDragDrop() {
+            const items = document.querySelectorAll('.dd-item');
+            const zones = document.querySelectorAll('.drop-zone');
+
+            items.forEach(item => {
+                item.draggable = true;
+
+                item.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', item.dataset.id);
+                    item.classList.add('dragging');
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                });
+            });
+
+            zones.forEach(zone => {
+                zone.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    zone.classList.add('dragover');
+                });
+
+                zone.addEventListener('dragleave', () => {
+                    zone.classList.remove('dragover');
+                });
+
+                zone.addEventListener('drop', e => {
+                    e.preventDefault();
+                    zone.classList.remove('dragover');
+
+                    const id = e.dataTransfer.getData('text/plain');
+                    const item = document.querySelector(`.dd-item[data-id="${id}"]`);
+
+                    if (item && !ddChecked) {
+                        zone.appendChild(item);
+                        item.draggable = false;
+                        ddAnswers[id] = zone.dataset.category;
+                    }
+                });
+            });
+        }
+
+        function checkDragDrop() {
+            if (ddChecked) return;
+            ddChecked = true;
+
+            let correct = 0;
+            ddData.items.forEach(item => {
+                const el = document.querySelector(`.dd-item[data-id="${item.id}"]`);
+                const isCorrect = ddAnswers[item.id] === item.category;
+
+                if (isCorrect) {
+                    correct++;
+                    el.style.borderColor = '#4ade80';
+                    el.style.background = '#f0fdf4';
+                } else {
+                    el.style.borderColor = '#f87171';
+                    el.style.background = '#fef2f2';
+                }
+            });
+
+            document.getElementById('btnResults').style.display = 'inline-block';
+            updateProgress();
+        }
+
+        // Results
+        function showResults() {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById('resultsSection').classList.add('active');
+
+            // Calculate score
+            let quizCorrect = 0;
+            quizData.forEach(q => {
+                if (quizAnswers[q.id] === q.correct) quizCorrect++;
+            });
+
+            let ddCorrect = 0;
+            ddData.items.forEach(item => {
+                if (ddAnswers[item.id] === item.category) ddCorrect++;
+            });
+
+            const totalQuestions = quizData.length + ddData.items.length;
+            const totalCorrect = quizCorrect + ddCorrect;
+            const score = Math.round((totalCorrect / totalQuestions) * 100);
+
+            document.getElementById('scoreDisplay').textContent = score + '%';
+            document.getElementById('scoreDetail').textContent =
+                `Respondiste correctamente ${totalCorrect} de ${totalQuestions} preguntas`;
+
+            if (score >= 70) {
+                document.getElementById('resultsIcon').textContent = '🏆';
+                document.getElementById('resultsTitle').textContent = '¡Felicitaciones!';
+            } else {
+                document.getElementById('resultsIcon').textContent = '📚';
+                document.getElementById('resultsTitle').textContent = 'Sigue practicando';
+            }
+
+            // Send to SCORM
+            scorm.setScore(score);
+            scorm.setStatus(score >= 70 ? 'passed' : 'failed');
+
+            updateProgress();
+        }
+
+        function finishCourse() {
+            scorm.setStatus('completed');
+            scorm.finish();
+            alert('¡Curso completado! Puedes cerrar esta ventana.');
+        }
+
+        function updateProgress() {
+            let progress = 33; // Video watched
+            if (quizChecked) progress += 33;
+            if (ddChecked) progress += 34;
+
+            document.getElementById('progressFill').style.width = progress + '%';
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', initDragDrop);
+    </script>
+</body>
+</html>

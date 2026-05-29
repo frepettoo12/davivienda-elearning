@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <link rel="stylesheet" href="../css/brand.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <style>
+    /* ============================================
+       LAYOUT: CONTENT FULLSCREEN
+       Para slides de contenido sin avatar
+       ============================================ */
+
+    .layout-fullscreen {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      padding: var(--space-xl);
+      padding-top: 120px;
+    }
+
+    /* Header fijo */
+    .header {
+      position: absolute;
+      top: var(--space-lg);
+      left: var(--space-xl);
+      right: var(--space-xl);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    /* Contenido central */
+    .main-content {
+      height: calc(100% - 80px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* Grid de contenido */
+    .content-grid {
+      display: grid;
+      gap: var(--space-lg);
+    }
+
+    .content-grid-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .content-grid-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    /* Titulo centrado grande */
+    .hero-title {
+      text-align: center;
+      margin-bottom: var(--space-xl);
+    }
+
+    .hero-title h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: var(--text-5xl);
+      color: var(--black);
+      margin-bottom: var(--space-md);
+    }
+
+    .hero-title .subtitle {
+      font-size: var(--text-xl);
+    }
+  </style>
+</head>
+<body>
+  <div class="top-accent"></div>
+  <div class="bg-pattern-diagonal"></div>
+
+  <div class="layout-fullscreen">
+    <!-- Header -->
+    <div class="header">
+      <!-- Logo -->
+      <div class="davi-logo">
+        <div class="davi-logo-house">
+          <svg viewBox="0 0 55 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M27.5 0L55 22H45V50H10V22H0L27.5 0Z" fill="#DA291C"/>
+            <rect x="22" y="30" width="11" height="20" fill="white"/>
+          </svg>
+        </div>
+        <span class="davi-logo-text">DAVIVIENDA</span>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-bar">
+        <div class="progress-arrows">
+          <div class="progress-arrow completed"></div>
+          <div class="progress-arrow active"></div>
+          <div class="progress-arrow"></div>
+          <div class="progress-arrow"></div>
+        </div>
+        <div class="progress-number">2</div>
+        <div class="progress-label">Tipos de<br>Portales</div>
+      </div>
+    </div>
+
+    <!-- Contenido principal -->
+    <div class="main-content">
+      <!-- OPCION 1: Titulo hero centrado -->
+      <div class="hero-title">
+        <h1>Titulo Principal</h1>
+        <p class="subtitle">Subtitulo o descripcion breve del tema</p>
+      </div>
+
+      <!-- OPCION 2: Grid de 3 cards -->
+      <div class="content-grid content-grid-3">
+        <div class="card">
+          <div class="icon-circle mb-md">1</div>
+          <h3 class="heading-4 mb-sm">Portal Pyme</h3>
+          <p class="body-base">Descripcion breve del portal para empresas pequenas.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon-circle mb-md">2</div>
+          <h3 class="heading-4 mb-sm">Portal Empresarial</h3>
+          <p class="body-base">Descripcion del portal para empresas medianas.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon-circle mb-md">3</div>
+          <h3 class="heading-4 mb-sm">Portal Corporativo</h3>
+          <p class="body-base">Descripcion del portal para grandes corporaciones.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar"></div>
+</body>
+</html>

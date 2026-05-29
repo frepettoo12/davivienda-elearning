@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITULO}} - {{CURSO}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;1,600;1,700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --davi-red: #DA291C;
+            --davi-red-dark: #B8231A;
+            --davi-orange: #F5A623;
+            --davi-yellow: #FFD100;
+            --davi-blue: #4A90D9;
+            --davi-cyan: #00B5AD;
+            --bg-light: #F5F3F0;
+            --bg-card: #FFFFFF;
+            --text-dark: #333333;
+            --text-gray: #666666;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Open Sans', sans-serif;
+            background: var(--bg-light);
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Patrón de ondas de fondo */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; right: 0;
+            width: 60%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 600'%3E%3Cpath d='M600,0 Q700,100 800,50' fill='none' stroke='rgba(218,41,28,0.06)' stroke-width='2'/%3E%3Cpath d='M500,50 Q650,150 800,100' fill='none' stroke='rgba(218,41,28,0.05)' stroke-width='2'/%3E%3Cpath d='M400,100 Q600,200 800,150' fill='none' stroke='rgba(218,41,28,0.04)' stroke-width='2'/%3E%3Cpath d='M300,150 Q550,250 800,200' fill='none' stroke='rgba(218,41,28,0.03)' stroke-width='2'/%3E%3Cpath d='M200,200 Q500,300 800,250' fill='none' stroke='rgba(218,41,28,0.03)' stroke-width='2'/%3E%3C/svg%3E");
+            background-size: cover;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 50px 100px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .back-btn {
+            width: 50px;
+            height: 50px;
+            border: 2px solid var(--text-dark);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: var(--text-dark);
+            color: white;
+        }
+
+        .course-box {
+            padding: 12px 24px;
+            border: 2px solid var(--text-dark);
+            border-radius: 8px;
+            background: white;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        /* Título principal */
+        .main-title {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700;
+            font-style: italic;
+            color: var(--davi-red);
+            font-size: 2.5em;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--text-gray);
+            font-size: 1.1em;
+            max-width: 700px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+
+        /* Navegación inferior */
+        .bottom-nav {
+            position: fixed;
+            bottom: 25px;
+            right: 40px;
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        .nav-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--text-dark);
+            padding: 12px 18px;
+            border-radius: 10px;
+        }
+
+        .nav-controls button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            padding: 5px;
+            font-size: 18px;
+        }
+
+        .page-nav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            font-weight: 600;
+        }
+
+        .page-nav .arrow {
+            color: var(--davi-red);
+            font-size: 1.3em;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .page-nav .arrow:hover {
+            transform: scale(1.2);
+        }
+
+        /* Slides container */
+        .slides-container {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .slide {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .slide.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        {{STYLES_ADICIONALES}}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="back-btn" onclick="history.back()">‹</div>
+            <div class="course-box">{{CURSO}}</div>
+        </div>
+
+        <h1 class="main-title">{{TITULO}}</h1>
+        <p class="subtitle">{{SUBTITULO}}</p>
+
+        <div class="slides-container">
+            {{CONTENIDO}}
+        </div>
+    </div>
+
+    <div class="bottom-nav">
+        <div class="nav-controls">
+            <button onclick="toggleAudio()">🔊</button>
+            <button onclick="toggleFullscreen()">⛶</button>
+        </div>
+        <div class="page-nav">
+            <span class="arrow" onclick="prevSlide()">‹</span>
+            <span id="page-indicator">1 / {{TOTAL_SLIDES}}</span>
+            <span class="arrow" onclick="nextSlide()">›</span>
+        </div>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        function showSlide(n) {
+            slides.forEach(s => s.classList.remove('active'));
+            currentSlide = (n + totalSlides) % totalSlides;
+            slides[currentSlide].classList.add('active');
+            document.getElementById('page-indicator').textContent = (currentSlide + 1) + ' / ' + totalSlides;
+        }
+
+        function nextSlide() { showSlide(currentSlide + 1); }
+        function prevSlide() { showSlide(currentSlide - 1); }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function toggleAudio() {
+            // Placeholder for audio control
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextSlide();
+            if (e.key === 'ArrowLeft') prevSlide();
+        });
+
+        // Initialize
+        showSlide(0);
+
+        {{SCRIPTS_ADICIONALES}}
+    </script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{
+  "pagina": {
+    "titulo": "Bienvenido al mundo de la Inteligencia Artificial",
+    "descripcion": "En este módulo descubrirás cómo la <strong>IA está transformando la banca</strong> y aprenderás a utilizar herramientas que potenciarán tu productividad en el día a día.",
+    "duracion": "15 minutos"
+  },
+  "botones": [
+    {
+      "id": "conceptos",
+      "texto": "Conceptos clave que aprenderás",
+      "icono": "book",
+      "modal": {
+        "titulo": "Conceptos Clave",
+        "contenido": [
+          "¿Qué es la Inteligencia Artificial y cómo funciona?",
+          "Machine Learning vs Deep Learning",
+          "ChatGPT y los modelos de lenguaje",
+          "Automatización inteligente de procesos"
+        ]
+      }
+    },
+    {
+      "id": "beneficios",
+      "texto": "Beneficios para tu trabajo",
+      "icono": "star",
+      "modal": {
+        "titulo": "Beneficios",
+        "contenido": [
+          "Ahorra hasta 2 horas diarias en tareas repetitivas",
+          "Mejora la calidad de tus análisis y reportes",
+          "Responde más rápido a clientes y colegas",
+          "Toma decisiones basadas en datos"
+        ]
+      }
+    },
+    {
+      "id": "herramientas",
+      "texto": "Herramientas que usaremos",
+      "icono": "check",
+      "modal": {
+        "titulo": "Herramientas del Módulo",
+        "contenido": [
+          "Microsoft Copilot para Excel y Word",
+          "ChatGPT para redacción y análisis",
+          "Power Automate para flujos de trabajo",
+          "Azure AI para procesamiento de documentos"
+        ]
+      }
+    }
+  ]
+}

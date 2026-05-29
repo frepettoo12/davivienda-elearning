@@ -1,0 +1,37 @@
+{
+  "pagina": {
+    "titulo": "Por medio de este curso podrás:",
+    "descripcion": "Desarrollar de una manera efectiva las <strong>destrezas, capacidades y mindset digitales</strong> para apalancar la transformación digital del banco, a través de un modelo de aprendizaje ágil, práctico y vanguardista.",
+    "duracion": "25 minutos"
+  },
+  "botones": [
+    {
+      "id": "temas",
+      "texto": "Conoce los temas que verás aquí",
+      "icono": "heart",
+      "modal": {
+        "titulo": "Temas",
+        "contenido": [
+          "¿Qué es la transformación digital? Nuevos modelos de negocio",
+          "Lo que no se mide, no se mejora",
+          "Herramientas digitales para el día a día"
+        ]
+      }
+    },
+    {
+      "id": "objetivos",
+      "texto": "Objetivos de aprendizaje",
+      "icono": "info",
+      "modal": {
+        "titulo": "Objetivos de aprendizaje",
+        "contenido": [
+          "Comprender los fundamentos de la transformación digital",
+          "Identificar oportunidades de mejora en procesos actuales",
+          "Aplicar herramientas digitales en el trabajo diario",
+          "Desarrollar un mindset orientado a la innovación"
+        ]
+      }
+    }
+  ],
+  "iconos_disponibles": ["heart", "star", "info", "check"]
+}

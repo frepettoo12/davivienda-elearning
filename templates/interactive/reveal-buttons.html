@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Template Interactivo - Reveal Buttons</title>
+  <link rel="stylesheet" href="../css/brand.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="../css/interactive.css">
+</head>
+<body>
+  <div class="top-accent"></div>
+
+  <!-- Decorador visual estilo Uxplora -->
+  <div class="deco-wave"></div>
+
+  <div class="interactive-layout">
+    <!-- Header -->
+    <div class="interactive-header">
+      <div class="davi-logo">
+        <div class="davi-logo-house">
+          <svg viewBox="0 0 55 50" fill="none">
+            <path d="M27.5 0L55 22H45V50H10V22H0L27.5 0Z" fill="#DA291C"/>
+            <rect x="22" y="30" width="11" height="20" fill="white"/>
+          </svg>
+        </div>
+        <span class="davi-logo-text">DAVIVIENDA</span>
+      </div>
+    </div>
+
+    <!-- Contenido principal -->
+    <div class="interactive-main">
+      <!-- Panel izquierdo - Contenido -->
+      <div class="interactive-content">
+        <div class="card" style="max-width: 700px; padding: 48px;">
+          <h2 class="heading-3 mb-md" id="main-title">Por medio de este curso podrás:</h2>
+          <p class="body-lg" id="main-description">
+            Desarrollar de una manera efectiva las <strong>destrezas, capacidades y mindset digitales</strong>
+            para apalancar la transformación digital del banco, a través de un modelo de aprendizaje ágil,
+            práctico y vanguardista.
+          </p>
+        </div>
+      </div>
+
+      <!-- Panel derecho - Botones interactivos -->
+      <div class="interactive-sidebar">
+        <!-- Botón 1: Temas -->
+        <button class="reveal-btn" data-modal="modal-temas">
+          <div class="reveal-btn-icon heart">
+            <svg viewBox="0 0 24 24"><path d="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z"/></svg>
+          </div>
+          <span class="reveal-btn-text">Conoce los temas que verás aquí</span>
+          <div class="reveal-btn-arrow">
+            <svg viewBox="0 0 24 24"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg>
+          </div>
+        </button>
+
+        <!-- Botón 2: Objetivos -->
+        <button class="reveal-btn" data-modal="modal-objetivos">
+          <div class="reveal-btn-icon info">
+            <svg viewBox="0 0 24 24"><path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></svg>
+          </div>
+          <span class="reveal-btn-text">Objetivos de aprendizaje</span>
+          <div class="reveal-btn-arrow">
+            <svg viewBox="0 0 24 24"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg>
+          </div>
+        </button>
+
+        <!-- Badge info (no clickeable) -->
+        <div class="info-badge">
+          <div class="info-badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z"/></svg>
+          </div>
+          <span class="info-badge-text">Duración: 25 minutos</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Temas -->
+  <div class="modal-overlay" id="modal-temas">
+    <div class="modal-content">
+      <button class="modal-close" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
+      </button>
+      <h3 class="modal-title">Temas</h3>
+      <div class="modal-body">
+        <ul>
+          <li>¿Qué es la transformación digital? Nuevos modelos de negocio</li>
+          <li>Lo que no se mide, no se mejora</li>
+          <li>Herramientas digitales para el día a día</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Objetivos -->
+  <div class="modal-overlay" id="modal-objetivos">
+    <div class="modal-content">
+      <button class="modal-close" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
+      </button>
+      <h3 class="modal-title">Objetivos de aprendizaje</h3>
+      <div class="modal-body">
+        <ul>
+          <li>Comprender los fundamentos de la transformación digital</li>
+          <li>Identificar oportunidades de mejora en procesos actuales</li>
+          <li>Aplicar herramientas digitales en el trabajo diario</li>
+          <li>Desarrollar un mindset orientado a la innovación</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar"></div>
+
+  <script>
+    // ============================================
+    // INTERACTIVIDAD - Reveal Buttons + Modals
+    // ============================================
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Obtener todos los botones reveal
+      const revealBtns = document.querySelectorAll('.reveal-btn');
+      const modals = document.querySelectorAll('.modal-overlay');
+      const closeBtns = document.querySelectorAll('.modal-close');
+
+      // Abrir modal al hacer clic en botón
+      revealBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+          const modalId = this.getAttribute('data-modal');
+          const modal = document.getElementById(modalId);
+          if (modal) {
+            modal.classList.add('active');
+          }
+        });
+      });
+
+      // Cerrar modal con botón X
+      closeBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+          this.closest('.modal-overlay').classList.remove('active');
+        });
+      });
+
+      // Cerrar modal al hacer clic fuera
+      modals.forEach(modal => {
+        modal.addEventListener('click', function(e) {
+          if (e.target === this) {
+            this.classList.remove('active');
+          }
+        });
+      });
+
+      // Cerrar con tecla Escape
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          modals.forEach(modal => modal.classList.remove('active'));
+        }
+      });
+    });
+  </script>
+</body>
+</html>

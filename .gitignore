@@ -1,0 +1,38 @@
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Output files
+output/
+*.mp3
+*.mp4
+*.scorm
+*.zip
+*.png
+render_*.png
+
+# Large folders (not needed for deployment)
+reference/
+SadTalker/
+remotion-videos/
+
+# Claude
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
