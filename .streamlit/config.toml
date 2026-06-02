@@ -1,9 +1,14 @@
-[theme]
-primaryColor = "#DA291C"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F5F5F5"
-textColor = "#333333"
-font = "sans serif"
-
 [server]
-maxUploadSize = 50
+headless = true
+address = "0.0.0.0"
+port = 8080
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+serverAddress = "davivienda-elearning-1087920188542.us-central1.run.app"
+serverPort = 443
+
+[client]
+showErrorDetails = true

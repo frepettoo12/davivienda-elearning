@@ -4,6 +4,56 @@ Correr con: streamlit run app.py
 """
 
 import streamlit as st
+
+# Configuración de página (debe ir primero)
+st.set_page_config(
+    page_title="E-Learning Davivienda",
+    page_icon="🎓",
+    layout="wide"
+)
+
+# Mostrar loader inmediatamente mientras carga
+if 'app_loaded' not in st.session_state:
+    st.session_state.app_loaded = False
+
+# Autenticación (import rápido, sin HTTP)
+try:
+    from auth import require_auth, logout, init_auth_state, handle_oauth_callback
+    AUTH_DISPONIBLE = True
+except:
+    AUTH_DISPONIBLE = False
+
+# Cliente API Firebase - NO hacer health_check aquí (es lento)
+try:
+    import api_client
+    API_CLIENTE_DISPONIBLE = True
+except:
+    API_CLIENTE_DISPONIBLE = False
+
+# Health check cacheado - solo se ejecuta una vez por sesión
+@st.cache_data(ttl=300, show_spinner=False)
+def check_api_health():
+    """Health check cacheado por 5 minutos."""
+    try:
+        return api_client.health_check()
+    except:
+        return False
+
+# Lazy check - solo cuando se necesita
+def is_api_available():
+    if not API_CLIENTE_DISPONIBLE:
+        return False
+    if 'api_disponible' not in st.session_state:
+        st.session_state.api_disponible = check_api_health()
+    return st.session_state.api_disponible
+
+# Para compatibilidad con código existente
+API_DISPONIBLE = API_CLIENTE_DISPONIBLE  # Se verificará lazy cuando se use
+
+# Inicializar auth y manejar callback OAuth
+if AUTH_DISPONIBLE:
+    init_auth_state()
+    handle_oauth_callback()
 import streamlit.components.v1 as components
 import pandas as pd
 import json
@@ -1793,12 +1843,12 @@ def generar_recurso_individual(guion_data, sol, voice_id, heygen_avatar_id, prog
     }
 
 
-# Configuración de página
-st.set_page_config(
-    page_title="E-Learning Davivienda",
-    page_icon="🎓",
-    layout="wide"
-)
+# Verificar autenticación
+if AUTH_DISPONIBLE:
+    from auth import show_login_page
+    if not st.session_state.get("authenticated", False):
+        show_login_page()
+        st.stop()
 
 # CSS personalizado
 st.markdown("""
@@ -1835,13 +1885,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Header
-st.markdown("""
+# Header con info de usuario
+user_info = ""
+if AUTH_DISPONIBLE and st.session_state.get("authenticated"):
+    rol = st.session_state.get("rol", "")
+    email = st.session_state.get("user_email", "")
+    if rol == "learning":
+        user_info = f'<span style="float:right; font-size:14px;">👤 {email}</span>'
+    else:
+        user_info = f'<span style="float:right; font-size:14px;">📝 Área Solicitante</span>'
+
+st.markdown(f"""
 <div class="main-header">
-    <h1>🎓 E-Learning Davivienda</h1>
+    <h1>🎓 E-Learning Davivienda {user_info}</h1>
     <p>Generador de Mallas Curriculares con IA</p>
 </div>
 """, unsafe_allow_html=True)
+
+# Botón de logout en sidebar
+if AUTH_DISPONIBLE and st.session_state.get("authenticated"):
+    with st.sidebar:
+        if st.button("🚪 Cerrar sesión"):
+            from auth import logout
+            logout()
+            st.rerun()
 
 # Extraer texto de archivos subidos
 def extract_text_from_file(uploaded_file):
@@ -1943,138 +2010,162 @@ if 'usar_remotion' not in st.session_state:
 
 # Sidebar con información y glosario
 with st.sidebar:
-    st.markdown("### ⚙️ Configuración")
-    if api_key:
-        st.success("OpenAI API ✓")
+    # Solo mostrar configuración avanzada para Learning
+    sidebar_rol = st.session_state.get("rol", "learning") if AUTH_DISPONIBLE else "learning"
+
+    if sidebar_rol == "solicitante":
+        st.markdown("### 📝 Nueva Solicitud")
+        st.info("Completá el formulario para solicitar un nuevo curso e-learning.")
     else:
-        st.error("Falta OPENAI_API_KEY en .env")
+        st.markdown("### ⚙️ Configuración")
 
-    # ElevenLabs Voice ID
-    with st.expander("🎙️ Voz ElevenLabs"):
-        voces_predefinidas = {
-            "Clau Bogotá (default)": "SplyIQAjgy4DKGAnOrHi",
-            "Valeria (casual)": "JddqVF50ZSIR7SRbJE6u",
-            "Gaby (joven)": "a0MaQpDjx7p7bZmqzFp1",
-            "Personalizada": "custom"
-        }
+    # Configuración de API (automático, sin toggle visible)
+    usar_api = API_DISPONIBLE if sidebar_rol == "learning" else False
+    st.session_state.usar_api = usar_api
 
-        voz_seleccionada = st.selectbox(
-            "Seleccionar voz",
-            options=list(voces_predefinidas.keys()),
-            index=0
-        )
+    if sidebar_rol == "learning" and not usar_api:
+        if api_key:
+            st.success("OpenAI API ✓")
+        else:
+            st.error("Falta OPENAI_API_KEY en .env")
 
-        if voz_seleccionada == "Personalizada":
-            custom_id = st.text_input(
-                "Voice ID",
-                value=st.session_state.elevenlabs_voice_id,
-                help="ID de voz de ElevenLabs"
+    # Configuración avanzada solo para Learning
+    if sidebar_rol == "learning":
+        # ElevenLabs Voice ID
+        with st.expander("🎙️ Voz ElevenLabs"):
+            voces_predefinidas = {
+                "Clau Bogotá (default)": "SplyIQAjgy4DKGAnOrHi",
+                "Valeria (casual)": "JddqVF50ZSIR7SRbJE6u",
+                "Gaby (joven)": "a0MaQpDjx7p7bZmqzFp1",
+                "Personalizada": "custom"
+            }
+
+            voz_seleccionada = st.selectbox(
+                "Seleccionar voz",
+                options=list(voces_predefinidas.keys()),
+                index=0
             )
-            st.session_state.elevenlabs_voice_id = custom_id
-        else:
-            st.session_state.elevenlabs_voice_id = voces_predefinidas[voz_seleccionada]
 
-        st.caption(f"ID: `{st.session_state.elevenlabs_voice_id}`")
+            if voz_seleccionada == "Personalizada":
+                custom_id = st.text_input(
+                    "Voice ID",
+                    value=st.session_state.elevenlabs_voice_id,
+                    help="ID de voz de ElevenLabs"
+                )
+                st.session_state.elevenlabs_voice_id = custom_id
+            else:
+                st.session_state.elevenlabs_voice_id = voces_predefinidas[voz_seleccionada]
 
-    # HeyGen Avatar ID
-    with st.expander("🎭 Avatar HeyGen"):
-        avatares_predefinidos = {
-            "Hada (gestos animados)": "Hada_LivelyGestures_Front_public",
-            "Annie (profesional)": "Annie_Business_Casual_Standing_Front_public",
-            "Caroline (corporativo)": "Caroline_Office_Standing_Front_public",
-            "Adriana (talk show)": "Adriana_BizTalk_Front_public",
-            "Personalizado": "custom"
-        }
+            st.caption(f"ID: `{st.session_state.elevenlabs_voice_id}`")
 
-        avatar_seleccionado = st.selectbox(
-            "Seleccionar avatar",
-            options=list(avatares_predefinidos.keys()),
-            index=0
-        )
+        # HeyGen Avatar ID
+        with st.expander("🎭 Avatar HeyGen"):
+            avatares_predefinidos = {
+                "Hada (gestos animados)": "Hada_LivelyGestures_Front_public",
+                "Annie (profesional)": "Annie_Business_Casual_Standing_Front_public",
+                "Caroline (corporativo)": "Caroline_Office_Standing_Front_public",
+                "Adriana (talk show)": "Adriana_BizTalk_Front_public",
+                "Personalizado": "custom"
+            }
 
-        if avatar_seleccionado == "Personalizado":
-            custom_avatar = st.text_input(
-                "Avatar ID",
-                value=st.session_state.heygen_avatar_id,
-                help="ID del avatar de HeyGen"
+            avatar_seleccionado = st.selectbox(
+                "Seleccionar avatar",
+                options=list(avatares_predefinidos.keys()),
+                index=0
             )
-            st.session_state.heygen_avatar_id = custom_avatar
-        else:
-            st.session_state.heygen_avatar_id = avatares_predefinidos[avatar_seleccionado]
 
-        st.caption(f"ID: `{st.session_state.heygen_avatar_id}`")
+            if avatar_seleccionado == "Personalizado":
+                custom_avatar = st.text_input(
+                    "Avatar ID",
+                    value=st.session_state.heygen_avatar_id,
+                    help="ID del avatar de HeyGen"
+                )
+                st.session_state.heygen_avatar_id = custom_avatar
+            else:
+                st.session_state.heygen_avatar_id = avatares_predefinidos[avatar_seleccionado]
 
-    # Motor de Video
-    with st.expander("🎬 Motor de Video"):
-        motor_video = st.radio(
-            "Motor de generación",
-            options=["canva", "slides"],
-            format_func=lambda x: "🎨 Canva (recomendado)" if x == "canva" else "📊 Slides estáticos",
-            index=0,
-            help="Canva genera presentaciones animadas profesionales"
-        )
-        st.session_state.motor_video = motor_video
-        # Mantener compatibilidad
-        st.session_state.usar_remotion = False
+            st.caption(f"ID: `{st.session_state.heygen_avatar_id}`")
 
-        if motor_video == "canva":
-            st.success("✨ Videos profesionales con Canva")
-            st.caption("Presentaciones animadas exportadas a MP4 + voiceover ElevenLabs")
-        else:
-            st.info("📊 Videos con slides estáticos")
-            st.caption("HTML renderizado a imagen + audio")
-
-    # Música de fondo
-    with st.expander("🎵 Música de fondo"):
-        musica_seleccionada = st.selectbox(
-            "Seleccionar música",
-            options=list(MUSICA_FONDO.keys()),
-            index=0
-        )
-
-        if musica_seleccionada == "Personalizada":
-            custom_music = st.text_input(
-                "URL de audio MP3",
-                placeholder="https://ejemplo.com/musica.mp3",
-                help="URL directa a archivo MP3"
+        # Motor de Video
+        with st.expander("🎬 Motor de Video"):
+            motor_video = st.radio(
+                "Motor de generación",
+                options=["canva", "slides"],
+                format_func=lambda x: "🎨 Canva (recomendado)" if x == "canva" else "📊 Slides estáticos",
+                index=0,
+                help="Canva genera presentaciones animadas profesionales"
             )
-            st.session_state.musica_fondo = custom_music if custom_music else None
-        else:
-            st.session_state.musica_fondo = MUSICA_FONDO[musica_seleccionada]
+            st.session_state.motor_video = motor_video
+            # Mantener compatibilidad
+            st.session_state.usar_remotion = False
 
-        volumen_musica = st.slider("Volumen música", 0, 100, 20, help="% del volumen de la voz")
-        st.session_state.volumen_musica = volumen_musica
+            if motor_video == "canva":
+                st.success("✨ Videos profesionales con Canva")
+                st.caption("Presentaciones animadas exportadas a MP4 + voiceover ElevenLabs")
+            else:
+                st.info("📊 Videos con slides estáticos")
+                st.caption("HTML renderizado a imagen + audio")
 
-        if st.session_state.get('musica_fondo'):
-            st.caption("🎵 Música activa")
+        # Música de fondo
+        with st.expander("🎵 Música de fondo"):
+            musica_seleccionada = st.selectbox(
+                "Seleccionar música",
+                options=list(MUSICA_FONDO.keys()),
+                index=0
+            )
 
-    # Estado del flujo
-    st.markdown("---")
-    st.markdown("### 📍 Progreso")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("✅ Solicitud" if st.session_state.solicitud else "⬜ Solicitud")
-        st.markdown("✅ Malla" if st.session_state.malla else "⬜ Malla")
-        st.markdown("✅ Diseño" if st.session_state.guiones else "⬜ Diseño")
-    with col2:
-        st.markdown("✅ Contenido" if st.session_state.contenido_generado else "⬜ Contenido")
-        st.markdown("✅ SCORM" if st.session_state.scorm_path else "⬜ SCORM")
+            if musica_seleccionada == "Personalizada":
+                custom_music = st.text_input(
+                    "URL de audio MP3",
+                    placeholder="https://ejemplo.com/musica.mp3",
+                    help="URL directa a archivo MP3"
+                )
+                st.session_state.musica_fondo = custom_music if custom_music else None
+            else:
+                st.session_state.musica_fondo = MUSICA_FONDO[musica_seleccionada]
 
-    # Glosario compacto
-    st.markdown("---")
-    st.markdown("### 📖 Recursos")
-    for r in GLOSARIO_RECURSOS:
-        st.caption(f"{r['icono']} {r['tipo']}")
+            volumen_musica = st.slider("Volumen música", 0, 100, 20, help="% del volumen de la voz")
+            st.session_state.volumen_musica = volumen_musica
 
-# Tabs principales - Flujo secuencial
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "1️⃣ Solicitud",
-    "2️⃣ Malla",
-    "3️⃣ Diseño",
-    "4️⃣ Contenido",
-    "5️⃣ SCORM",
-    "6️⃣ LMS"
-])
+            if st.session_state.get('musica_fondo'):
+                st.caption("🎵 Música activa")
+
+        # Estado del flujo
+        st.markdown("---")
+        st.markdown("### 📍 Progreso")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("✅ Solicitud" if st.session_state.solicitud else "⬜ Solicitud")
+            st.markdown("✅ Malla" if st.session_state.malla else "⬜ Malla")
+            st.markdown("✅ Diseño" if st.session_state.guiones else "⬜ Diseño")
+        with col2:
+            st.markdown("✅ Contenido" if st.session_state.contenido_generado else "⬜ Contenido")
+            st.markdown("✅ SCORM" if st.session_state.scorm_path else "⬜ SCORM")
+
+        # Glosario compacto
+        st.markdown("---")
+        st.markdown("### 📖 Recursos")
+        for r in GLOSARIO_RECURSOS:
+            st.caption(f"{r['icono']} {r['tipo']}")
+
+# Tabs según rol
+user_rol = st.session_state.get("rol", "learning") if AUTH_DISPONIBLE else "learning"
+
+if user_rol == "solicitante":
+    # Vista simplificada para solicitantes - Solicitud + Mis Solicitudes
+    tab1 = st.container()
+    tab2 = tab3 = tab4 = tab5 = tab6 = tab_inbox = None
+else:
+    # Vista completa para Learning - con Dashboard de Solicitudes
+    tab1 = None  # No formulario de Solicitud para Learning
+    tab_inbox, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📥 Solicitudes",
+        "1️⃣ Malla",
+        "2️⃣ Diseño",
+        "3️⃣ Contenido",
+        "4️⃣ SCORM",
+        "5️⃣ LMS"
+    ])
 
 # Función para extraer datos de Excel de solicitud
 def extract_solicitud_from_excel(uploaded_excel):
@@ -2110,8 +2201,9 @@ def extract_solicitud_from_excel(uploaded_excel):
     except Exception as e:
         return {"error": str(e)}
 
-# TAB 1: Nueva Solicitud
-with tab1:
+# TAB 1: Nueva Solicitud (solo para solicitante)
+if tab1:
+  with tab1:
     st.markdown("### Nueva Solicitud de Curso")
 
     # Opción de subir Excel
@@ -2215,10 +2307,8 @@ with tab1:
             if texto:
                 contenido_docs += f"\n\n--- Contenido de {uf.name} ---\n{texto}"
 
-    if st.button("🚀 Generar Malla", type="primary", use_container_width=True):
-        if not api_key:
-            st.error("Configura tu API Key en el sidebar")
-        elif not nombre_curso or not audiencia or not objetivo or not temas:
+    if st.button("🚀 Enviar Solicitud", type="primary", use_container_width=True):
+        if not nombre_curso or not audiencia or not objetivo or not temas:
             st.error("Completa todos los campos obligatorios (*)")
         else:
             # Parsear duración
@@ -2231,113 +2321,444 @@ with tab1:
             }
             duracion_min = dur_map.get(duracion, 15)
 
-            # Guardar solicitud
-            st.session_state.solicitud = {
-                "nombre": nombre_curso,
-                "audiencia": audiencia,
-                "nivel": nivel,
-                "duracion": duracion_min,
-                "area": area,
-                "objetivo": objetivo,
-                "temas": temas,
-                "requiere_eval": requiere_eval
-            }
-
-            with st.spinner("Generando malla con IA..."):
+            with st.spinner("Enviando solicitud..."):
                 try:
-                    client = OpenAI(api_key=api_key)
+                    if API_DISPONIBLE:
+                        # Preparar datos para la API
+                        solicitante = {
+                            "email": st.session_state.get("user_email", "solicitante@davivienda.com"),
+                            "nombre": st.session_state.get("user_name", "Solicitante"),
+                            "area": area
+                        }
 
-                    # Preparar contenido de documentación
-                    docs_section = ""
-                    if contenido_docs:
-                        docs_section = f"\n\nDOCUMENTACIÓN DE REFERENCIA:{contenido_docs[:8000]}"  # Limitar a 8000 chars
+                        curso = {
+                            "nombre": nombre_curso,
+                            "audiencia": audiencia,
+                            "nivel": nivel,
+                            "duracion_min": duracion_min,
+                            "objetivo": objetivo,
+                            "temas": temas,
+                            "requiere_eval": requiere_eval,
+                            "documentacion": contenido_docs[:8000] if contenido_docs else ""
+                        }
 
-                    prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de Davivienda (banco colombiano).
+                        result, error = api_client.crear_solicitud(
+                            solicitante=solicitante,
+                            curso=curso,
+                            prioridad="media"
+                        )
 
-SOLICITUD DE CURSO:
-- Nombre: {nombre_curso}
-- Audiencia: {audiencia}
-- Nivel: {nivel}
-- Duración máxima: {duracion_min} minutos
-- Objetivo: {objetivo}
-- Temas a cubrir: {temas}
-- Requiere evaluación: {"Sí" if requiere_eval else "No"}{docs_section}
+                        if error:
+                            raise Exception(error)
 
-TIPOS DE RECURSO DISPONIBLES:
-- Video avatar: Presentador virtual explicando (ideal para introducción, conceptos)
-- Video: Video tradicional sin avatar
-- Interactivo: Botones que revelan información al hacer clic
-- Infografía: Visualización de datos o procesos
-- Comparador: Tabla comparativa interactiva
-- Flashcards: Tarjetas de repaso (pregunta/respuesta)
-- Caso práctico: Escenario con decisiones y feedback
-- Quiz: Preguntas de evaluación
+                        st.success(f"✅ Solicitud enviada exitosamente!")
+                        st.info("El equipo de Learning revisará tu solicitud. Puedes ver el estado en 'Mis Solicitudes' abajo.")
+                        st.balloons()
 
-REGLAS:
-1. Divide en etapas: Introducción, Desarrollo, Cierre
-2. Un bloque puede tener múltiples recursos (filas con mismo bloque)
-3. Objetivos con verbos de Bloom medibles
-4. Duración total NO debe exceder {duracion_min} minutos
-5. Incluir Quiz al final si se requiere evaluación
-
-Genera una malla curricular. Responde SOLO con JSON array:
-[
-  {{
-    "id": 1,
-    "etapa": "Introducción",
-    "bloque": "Nombre del bloque",
-    "objetivo": "Al finalizar, el participante podrá...",
-    "tipo_recurso": "Video avatar",
-    "recurso": "Nombre descriptivo del recurso",
-    "descripcion": "Qué contiene este recurso",
-    "duracion_min": 2
-  }}
-]"""
-
-                    response = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=4000,
-                        temperature=0.7
-                    )
-
-                    content = response.choices[0].message.content
-                    start = content.find('[')
-                    end = content.rfind(']') + 1
-                    malla_data = json.loads(content[start:end])
-
-                    st.session_state.malla = malla_data
-                    st.session_state.version = 1
-                    st.session_state.historial = [{
-                        "version": 1,
-                        "feedback": "Generación inicial",
-                        "malla": malla_data
-                    }]
-
-                    st.success(f"✅ Malla generada: {len(malla_data)} recursos - Ve a la pestaña **Malla** para verla")
-
-                    # JavaScript para cambiar a la tab de Malla
-                    st.markdown("""
-                    <script>
-                        // Esperar a que cargue y hacer clic en la tab de Malla
-                        setTimeout(function() {
-                            const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-                            tabs.forEach(tab => {
-                                if (tab.innerText.includes('Malla')) {
-                                    tab.click();
-                                }
-                            });
-                        }, 500);
-                    </script>
-                    """, unsafe_allow_html=True)
-
-                    st.balloons()
+                    else:
+                        # Modo sin API (local/demo)
+                        st.session_state.solicitud = {
+                            "nombre": nombre_curso,
+                            "audiencia": audiencia,
+                            "nivel": nivel,
+                            "duracion": duracion_min,
+                            "area": area,
+                            "objetivo": objetivo,
+                            "temas": temas,
+                            "requiere_eval": requiere_eval
+                        }
+                        st.success("✅ Solicitud guardada (modo demo sin API)")
 
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
 
-# TAB 2: Malla y Diseño Instruccional
-with tab2:
+    # =============================================
+    # MIS SOLICITUDES (Sección para Solicitante)
+    # =============================================
+    st.markdown("---")
+    st.markdown("### 📋 Mis Solicitudes")
+
+    # Constantes para estados
+    MIS_STATUS_COLORS = {
+        "pendiente": "🟡",
+        "en_revision": "🔵",
+        "devuelto": "🟠",
+        "aprobado": "🟢",
+        "rechazado": "🔴",
+        "en_proceso": "🔷",
+        "completado": "✅",
+    }
+
+    MIS_STATUS_LABELS = {
+        "pendiente": "Pendiente",
+        "en_revision": "En revisión",
+        "devuelto": "Requiere tu atención",
+        "aprobado": "Aprobado",
+        "rechazado": "Rechazado",
+        "en_proceso": "En producción",
+        "completado": "Completado",
+    }
+
+    if API_DISPONIBLE:
+        try:
+            user_email = st.session_state.get("user_email", "solicitante@davivienda.com")
+            result, error = api_client.mis_solicitudes(user_email)
+
+            if error:
+                st.error(f"Error cargando solicitudes: {error}")
+                mis_solicitudes_list = []
+            else:
+                mis_solicitudes_list = result.get("solicitudes", [])
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+            mis_solicitudes_list = []
+    else:
+        st.info("Conecta a Firebase para ver tus solicitudes.")
+        mis_solicitudes_list = []
+
+    if mis_solicitudes_list:
+        for sol_item in mis_solicitudes_list:
+            sol_id = sol_item.get("id", "")
+            curso_nombre = sol_item.get("curso_nombre", "Sin nombre")
+            status = sol_item.get("status", "pendiente")
+            ultimo_comentario = sol_item.get("ultimo_comentario", "")
+            ultimo_rol = sol_item.get("ultimo_comentario_rol", "")
+
+            status_emoji = MIS_STATUS_COLORS.get(status, "⬜")
+            status_label = MIS_STATUS_LABELS.get(status, status)
+
+            # Destacar si hay respuesta de Learning
+            tiene_respuesta = ultimo_rol == "learning" and ultimo_comentario
+
+            with st.container():
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.markdown(f"**{curso_nombre}**")
+                    if tiene_respuesta:
+                        st.info(f"💬 Learning: {ultimo_comentario}")
+                    elif ultimo_comentario:
+                        st.caption(f"💬 {ultimo_comentario[:80]}...")
+
+                with col2:
+                    st.markdown(f"{status_emoji} **{status_label}**")
+
+                    # Si está devuelto, mostrar opción de responder
+                    if status == "devuelto":
+                        with st.expander("↩️ Responder"):
+                            respuesta = st.text_area("Tu respuesta", key=f"resp_{sol_id}")
+                            if st.button("Enviar", key=f"btn_{sol_id}"):
+                                if respuesta:
+                                    autor = {
+                                        "email": user_email,
+                                        "nombre": st.session_state.get("user_name", "Solicitante"),
+                                        "rol": "solicitante"
+                                    }
+                                    result, error = api_client.agregar_comentario(sol_id, respuesta, autor)
+                                    if not error:
+                                        # Cambiar estado a pendiente para que Learning lo revise
+                                        api_client.actualizar_solicitud(sol_id, status="pendiente")
+                                        st.success("Respuesta enviada")
+                                        st.rerun()
+                                    else:
+                                        st.error(error)
+                                else:
+                                    st.warning("Escribe una respuesta")
+
+                st.markdown("---")
+
+    elif API_DISPONIBLE:
+        st.info("No tienes solicitudes aún. Completa el formulario arriba para crear una.")
+
+# TAB INBOX: Dashboard de Solicitudes (Learning)
+if tab_inbox:
+  with tab_inbox:
+    # Estado de sesión para la solicitud seleccionada
+    if 'solicitud_seleccionada_id' not in st.session_state:
+        st.session_state.solicitud_seleccionada_id = None
+
+    # Colores para estados
+    STATUS_COLORS = {
+        "pendiente": "🟡",
+        "en_revision": "🔵",
+        "devuelto": "🟠",
+        "aprobado": "🟢",
+        "rechazado": "🔴",
+        "en_proceso": "🔷",
+        "completado": "✅",
+    }
+
+    STATUS_LABELS = {
+        "pendiente": "Pendiente",
+        "en_revision": "En revisión",
+        "devuelto": "Devuelto",
+        "aprobado": "Aprobado",
+        "rechazado": "Rechazado",
+        "en_proceso": "En proceso",
+        "completado": "Completado",
+    }
+
+    # Filtros compactos en una línea
+    col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 1])
+
+    with col_f1:
+        filtro_status = st.selectbox(
+            "Estado",
+            options=["Todos", "pendiente", "en_revision", "devuelto", "aprobado", "en_proceso"],
+            format_func=lambda x: "Todos" if x == "Todos" else f"{STATUS_COLORS.get(x, '')} {STATUS_LABELS.get(x, x)}",
+            label_visibility="collapsed"
+        )
+
+    with col_f2:
+        filtro_area = st.selectbox(
+            "Área",
+            options=["Todas", "Banca Pyme", "Banca Empresarial", "Cash Management", "Leasing", "Comercio Exterior"],
+            label_visibility="collapsed"
+        )
+
+    with col_f3:
+        filtro_asignado = st.text_input("Asignado", placeholder="Filtrar por email...", label_visibility="collapsed")
+
+    with col_f4:
+        st.button("🔄", help="Actualizar")
+
+    # Cargar solicitudes
+    if is_api_available():
+        try:
+            params_status = None if filtro_status == "Todos" else filtro_status
+            params_area = None if filtro_area == "Todas" else filtro_area
+            params_asignado = filtro_asignado if filtro_asignado else None
+
+            result, error = api_client.listar_solicitudes(
+                status=params_status,
+                area=params_area,
+                asignado_a=params_asignado
+            )
+
+            if error:
+                st.error(f"Error: {error}")
+                solicitudes_list = []
+            else:
+                solicitudes_list = result.get("solicitudes", [])
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+            solicitudes_list = []
+    else:
+        st.warning("API no disponible")
+        solicitudes_list = []
+
+    # Mostrar tabla de solicitudes
+    if solicitudes_list:
+        # Preparar datos para tabla
+        tabla_data = []
+        for sol_item in solicitudes_list:
+            status = sol_item.get("status", "pendiente")
+            prioridad = sol_item.get("prioridad", "media")
+            prioridad_emoji = "🔴" if prioridad == "alta" else ("🟡" if prioridad == "media" else "🟢")
+
+            tabla_data.append({
+                "id": sol_item.get("id", ""),
+                "Curso": sol_item.get("curso_nombre", "Sin nombre"),
+                "Área": sol_item.get("area", ""),
+                "Estado": f"{STATUS_COLORS.get(status, '')} {STATUS_LABELS.get(status, status)}",
+                "Prioridad": f"{prioridad_emoji}",
+                "Asignado": (sol_item.get("asignado_a") or "-")[:20],
+            })
+
+        df_solicitudes = pd.DataFrame(tabla_data)
+
+        # Mostrar tabla con selección
+        st.dataframe(
+            df_solicitudes[["Curso", "Área", "Estado", "Prioridad", "Asignado"]],
+            use_container_width=True,
+            hide_index=True,
+            height=250
+        )
+
+        # Selector de solicitud
+        opciones_sol = {f"{s['Curso']} ({s['Área']})": s['id'] for s in tabla_data}
+        seleccion = st.selectbox(
+            "Seleccionar solicitud",
+            options=["-- Seleccionar --"] + list(opciones_sol.keys()),
+            label_visibility="collapsed"
+        )
+
+        if seleccion != "-- Seleccionar --":
+            st.session_state.solicitud_seleccionada_id = opciones_sol[seleccion]
+
+        # Panel de detalle si hay solicitud seleccionada
+        if st.session_state.solicitud_seleccionada_id:
+            # Botón volver arriba del detalle
+            if st.button("⬅️ Volver a todas las solicitudes", type="secondary"):
+                st.session_state.solicitud_seleccionada_id = None
+                st.rerun()
+
+            st.markdown("### 📋 Detalle de Solicitud")
+
+            try:
+                sol_detail, error = api_client.obtener_solicitud(st.session_state.solicitud_seleccionada_id)
+
+                if error:
+                    st.error(f"Error: {error}")
+                elif sol_detail:
+                    curso = sol_detail.get("curso", {})
+                    solicitante = sol_detail.get("solicitante", {})
+                    comentarios = sol_detail.get("comentarios", [])
+                    current_status = sol_detail.get("status", "pendiente")
+
+                    col_d1, col_d2 = st.columns([2, 1])
+
+                    with col_d1:
+                        st.markdown(f"#### {curso.get('nombre', 'Sin nombre')}")
+                        st.markdown(f"""
+                        - **Audiencia:** {curso.get('audiencia', '')}
+                        - **Nivel:** {curso.get('nivel', '')}
+                        - **Duración:** {curso.get('duracion_min', 0)} min
+                        - **Objetivo:** {curso.get('objetivo', '')}
+                        - **Temas:** {curso.get('temas', '')}
+                        - **Requiere evaluación:** {'Sí' if curso.get('requiere_eval') else 'No'}
+                        """)
+
+                        st.markdown(f"**Solicitante:** {solicitante.get('nombre', '')} ({solicitante.get('email', '')})")
+                        st.markdown(f"**Área:** {solicitante.get('area', '')}")
+
+                    with col_d2:
+                        st.markdown("##### Acciones")
+
+                        # Botones de acción según estado
+                        if current_status == "pendiente":
+                            if st.button("🔵 Tomar Revisión", type="primary", use_container_width=True):
+                                user_email = st.session_state.get("user_email", "learning@davivienda.com")
+                                result, error = api_client.actualizar_solicitud(
+                                    st.session_state.solicitud_seleccionada_id,
+                                    status="en_revision",
+                                    asignado_a=user_email
+                                )
+                                if not error:
+                                    st.success("Solicitud tomada")
+                                    st.rerun()
+                                else:
+                                    st.error(error)
+
+                        if current_status in ["pendiente", "en_revision"]:
+                            col_btn1, col_btn2 = st.columns(2)
+                            with col_btn1:
+                                if st.button("✅ Aprobar", use_container_width=True):
+                                    result, error = api_client.actualizar_solicitud(
+                                        st.session_state.solicitud_seleccionada_id,
+                                        status="aprobado"
+                                    )
+                                    if not error:
+                                        st.success("Solicitud aprobada")
+                                        st.rerun()
+
+                            with col_btn2:
+                                if st.button("↩️ Devolver", use_container_width=True):
+                                    result, error = api_client.actualizar_solicitud(
+                                        st.session_state.solicitud_seleccionada_id,
+                                        status="devuelto"
+                                    )
+                                    if not error:
+                                        st.warning("Solicitud devuelta")
+                                        st.rerun()
+
+                            if st.button("❌ Rechazar", use_container_width=True):
+                                result, error = api_client.actualizar_solicitud(
+                                    st.session_state.solicitud_seleccionada_id,
+                                    status="rechazado"
+                                )
+                                if not error:
+                                    st.error("Solicitud rechazada")
+                                    st.rerun()
+
+                        if current_status == "aprobado":
+                            if st.button("🚀 Iniciar Producción", type="primary", use_container_width=True):
+                                # Cargar datos en solicitud con formato correcto
+                                st.session_state.solicitud = {
+                                    "nombre": curso.get("nombre", ""),
+                                    "audiencia": curso.get("audiencia", ""),
+                                    "nivel": curso.get("nivel", "Básico"),
+                                    "duracion": curso.get("duracion_min", 15),
+                                    "area": solicitante.get("area", ""),
+                                    "objetivo": curso.get("objetivo", ""),
+                                    "temas": curso.get("temas", ""),
+                                    "requiere_eval": curso.get("requiere_eval", True)
+                                }
+                                # Limpiar selección
+                                st.session_state.solicitud_seleccionada_id = None
+                                # Actualizar estado en Firebase
+                                result, error = api_client.actualizar_solicitud(
+                                    sol_detail.get("id"),
+                                    status="en_proceso"
+                                )
+                                if not error:
+                                    st.success("¡Producción iniciada!")
+                                    # JavaScript para cambiar a tab Malla
+                                    st.markdown("""
+                                    <script>
+                                        setTimeout(function() {
+                                            const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+                                            tabs.forEach(tab => {
+                                                if (tab.innerText.includes('Malla')) {
+                                                    tab.click();
+                                                }
+                                            });
+                                        }, 100);
+                                    </script>
+                                    """, unsafe_allow_html=True)
+                                    st.rerun()
+
+                    # Comentarios
+                    st.markdown("---")
+                    st.markdown("##### 💬 Comentarios")
+
+                    for com in comentarios:
+                        autor = com.get("autor", {})
+                        texto = com.get("texto", "")
+                        rol = autor.get("rol", "")
+                        nombre = autor.get("nombre", autor.get("email", ""))
+
+                        emoji = "👤" if rol == "solicitante" else "🎓"
+                        st.markdown(f"{emoji} **{nombre}** ({rol})")
+                        st.markdown(f"> {texto}")
+                        st.markdown("")
+
+                    # Agregar comentario
+                    nuevo_comentario = st.text_area("Agregar comentario", key="nuevo_comentario_inbox")
+                    if st.button("📤 Enviar Comentario"):
+                        if nuevo_comentario:
+                            user_email = st.session_state.get("user_email", "learning@davivienda.com")
+                            user_name = st.session_state.get("user_name", "Learning")
+                            autor = {
+                                "email": user_email,
+                                "nombre": user_name,
+                                "rol": "learning"
+                            }
+                            result, error = api_client.agregar_comentario(
+                                st.session_state.solicitud_seleccionada_id,
+                                nuevo_comentario,
+                                autor
+                            )
+                            if not error:
+                                st.success("Comentario agregado")
+                                st.rerun()
+                            else:
+                                st.error(error)
+                        else:
+                            st.warning("Escribe un comentario")
+
+            except Exception as e:
+                st.error(f"Error cargando detalle: {e}")
+
+    else:
+        st.info("No hay solicitudes pendientes. 🎉")
+
+
+# TAB 2: Malla y Diseño Instruccional (Learning)
+if tab2:
+  with tab2:
     if st.session_state.malla:
         sol = st.session_state.solicitud
 
@@ -2417,14 +2838,25 @@ with tab2:
         if st.button("🔄 Regenerar con Feedback", type="primary"):
             if not feedback:
                 st.warning("Escribe el feedback primero")
-            elif not api_key:
+            elif not api_key and not st.session_state.get('usar_api', False):
                 st.error("Configura tu API Key")
             else:
                 with st.spinner("Regenerando malla..."):
                     try:
-                        client = OpenAI(api_key=api_key)
+                        # Usar API Cloud o modo local
+                        if st.session_state.get('usar_api', False) and API_DISPONIBLE and st.session_state.get('malla_id'):
+                            result, error = api_client.iterar_malla(
+                                st.session_state.malla_id,
+                                feedback
+                            )
+                            if error:
+                                raise Exception(error)
+                            nueva_malla = result.get("malla", [])
+                        else:
+                            # Modo local
+                            client = OpenAI(api_key=api_key)
 
-                        prompt = f"""Eres un experto en Diseño Instruccional.
+                            prompt = f"""Eres un experto en Diseño Instruccional.
 
 MALLA ACTUAL:
 {json.dumps(st.session_state.malla, indent=2, ensure_ascii=False)}
@@ -2441,17 +2873,17 @@ TIPOS DE RECURSO: Video avatar, Video, Interactivo, Infografía, Comparador, Fla
 
 Responde SOLO con el JSON array actualizado."""
 
-                        response = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[{"role": "user", "content": prompt}],
-                            max_tokens=4000,
-                            temperature=0.7
-                        )
+                            response = client.chat.completions.create(
+                                model="gpt-4o",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=4000,
+                                temperature=0.7
+                            )
 
-                        content = response.choices[0].message.content
-                        start = content.find('[')
-                        end = content.rfind(']') + 1
-                        nueva_malla = json.loads(content[start:end])
+                            content = response.choices[0].message.content
+                            start = content.find('[')
+                            end = content.rfind(']') + 1
+                            nueva_malla = json.loads(content[start:end])
 
                         st.session_state.version += 1
                         st.session_state.malla = nueva_malla
@@ -2526,17 +2958,25 @@ Responde SOLO con el JSON array actualizado."""
             st.info("Cuando la malla esté lista, apruébala para generar el diseño instruccional automáticamente.")
 
             if st.button("✅ Aprobar Malla y Generar Diseño", type="primary", use_container_width=True):
-                if not api_key:
+                if not api_key and not st.session_state.get('usar_api', False):
                     st.error("Falta API Key")
                 else:
                     with st.spinner("Generando diseño instruccional para todos los recursos..."):
                         try:
-                            client = OpenAI(api_key=api_key)
-                            guiones = []
+                            # Usar API Cloud o modo local
+                            if st.session_state.get('usar_api', False) and API_DISPONIBLE and st.session_state.get('malla_id'):
+                                result, error = api_client.generar_guiones(st.session_state.malla_id)
+                                if error:
+                                    raise Exception(error)
+                                guiones = result.get("guiones", [])
+                            else:
+                                # Modo local
+                                client = OpenAI(api_key=api_key)
+                                guiones = []
 
-                            progress = st.progress(0)
-                            for i, recurso in enumerate(st.session_state.malla):
-                                prompt = f"""Eres un diseñador instruccional experto en e-learning corporativo para Davivienda.
+                                progress = st.progress(0)
+                                for i, recurso in enumerate(st.session_state.malla):
+                                    prompt = f"""Eres un diseñador instruccional experto en e-learning corporativo para Davivienda.
 
 CONTEXTO DEL CURSO:
 - Nombre: {sol['nombre']}
@@ -2569,20 +3009,20 @@ Para "Comparador": genera {{"columnas": ["Aspecto", "Opción A", "Opción B"], "
 Responde SOLO con JSON válido:
 {{"id": {recurso['id']}, "tipo": "{recurso['tipo_recurso']}", "titulo": "{recurso['recurso']}", "contenido": {{...}}, "notas_produccion": "..."}}"""
 
-                                response = client.chat.completions.create(
-                                    model="gpt-4o",
-                                    messages=[{"role": "user", "content": prompt}],
-                                    max_tokens=2000,
-                                    temperature=0.7
-                                )
+                                    response = client.chat.completions.create(
+                                        model="gpt-4o",
+                                        messages=[{"role": "user", "content": prompt}],
+                                        max_tokens=2000,
+                                        temperature=0.7
+                                    )
 
-                                content = response.choices[0].message.content
-                                start = content.find('{')
-                                end = content.rfind('}') + 1
-                                guion = json.loads(content[start:end])
-                                guiones.append(guion)
+                                    content = response.choices[0].message.content
+                                    start = content.find('{')
+                                    end = content.rfind('}') + 1
+                                    guion = json.loads(content[start:end])
+                                    guiones.append(guion)
 
-                                progress.progress((i + 1) / len(st.session_state.malla))
+                                    progress.progress((i + 1) / len(st.session_state.malla))
 
                             st.session_state.guiones = guiones
                             st.success(f"✅ Malla aprobada - Diseño generado para {len(guiones)} recursos")
@@ -2607,7 +3047,7 @@ Responde SOLO con JSON válido:
                             st.error(f"Error: {str(e)}")
 
     else:
-        st.info("👈 Genera una malla en la pestaña 'Solicitud'")
+        st.info("👈 Genera una malla desde el área solicitante")
 
 # Función para renderizar contenido de guión de forma visual
 def render_guion_contenido(contenido, tipo):
@@ -2731,8 +3171,9 @@ def generar_word_diseno(sol, guiones):
     buffer.seek(0)
     return buffer
 
-# TAB 3: Diseño Instruccional
-with tab3:
+# TAB 3: Diseño Instruccional (Learning)
+if tab3:
+  with tab3:
     st.markdown("### 📝 Diseño Instruccional")
 
     if not st.session_state.malla:
@@ -3039,8 +3480,9 @@ Responde SOLO con el JSON array actualizado."""
 
                     st.success(f"✅ Guardado en /output")
 
-# TAB 4: Generar Contenido (Assets)
-with tab4:
+# TAB 4: Generar Contenido - Assets (Learning)
+if tab4:
+  with tab4:
     st.markdown("### 🎨 Generar Contenido")
 
     if not st.session_state.guiones:
@@ -3803,8 +4245,9 @@ Responde SOLO con el JSON del recurso actualizado."""
             else:
                 st.info(f"📊 Progreso: {aprobados}/{total_contenido} recursos aprobados")
 
-# TAB 5: Ver SCORM
-with tab5:
+# TAB 5: SCORM (Learning)
+if tab5:
+  with tab5:
     st.markdown("### 📦 Paquete SCORM")
 
     if not st.session_state.contenido_generado:
@@ -4084,8 +4527,9 @@ with tab5:
                     if not has_index:
                         st.error("❌ Falta index.html")
 
-# TAB 6: Integrar a LMS
-with tab6:
+# TAB 6: LMS Integration (Learning)
+if tab6:
+  with tab6:
     st.markdown("### 🔌 Integrar a LMS")
 
     st.markdown("""

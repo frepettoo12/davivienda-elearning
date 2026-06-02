@@ -19,6 +19,10 @@ output/
 *.zip
 *.png
 render_*.png
+*.log
+
+# Frontend assets required at runtime
+!frontend/public/davivienda-logo.png
 
 # Large folders (not needed for deployment)
 reference/

@@ -14,13 +14,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app files
 COPY app.py .
+COPY api_client.py .
+COPY auth.py .
 COPY .streamlit .streamlit
-COPY templates templates
-COPY scripts scripts
-COPY briefs briefs
 
 # Expose port
 EXPOSE 8080
+
+# Health check
+HEALTHCHECK CMD curl --fail http://localhost:8080/_stcore/health || exit 1
 
 # Run Streamlit
 CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.headless=true"]

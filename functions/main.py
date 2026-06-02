@@ -1,0 +1,1006 @@
+"""
+Cloud Functions - Entry Point
+
+Endpoints disponibles:
+- POST /mallas - Crear malla
+- GET /mallas/{id} - Obtener malla
+- PUT /mallas/{id} - Iterar malla
+- POST /mallas/{id}/guiones - Generar guiones
+- POST /audio - Generar audio
+- POST /video - Generar video
+- GET /jobs/{id} - Estado de un job
+
+Solicitudes Dashboard:
+- POST /solicitudes - Crear solicitud
+- GET /solicitudes - Listar solicitudes (filtros: status, area, asignado_a)
+- GET /solicitudes/{id} - Obtener solicitud con comentarios
+- PUT /solicitudes/{id} - Actualizar solicitud (status, asignado_a, prioridad)
+- POST /solicitudes/{id}/comentarios - Agregar comentario
+- GET /mis-solicitudes - Listar solicitudes por email del solicitante
+"""
+import json
+import uuid
+from datetime import datetime
+from typing import Any
+
+import firebase_admin
+from firebase_admin import firestore, storage
+from firebase_functions import https_fn, options
+from firebase_functions.params import SecretParam
+from google.cloud.firestore import SERVER_TIMESTAMP
+
+# Secrets
+OPENAI_API_KEY = SecretParam("OPENAI_API_KEY")
+ELEVENLABS_API_KEY = SecretParam("ELEVENLABS_API_KEY")
+HEYGEN_API_KEY = SecretParam("HEYGEN_API_KEY")
+
+from core.services.malla_service import generar_malla, iterar_malla
+from core.services.guion_service import generar_guiones_batch
+from core.generators.audio import generar_audio
+from core.generators.video import crear_video_heygen, verificar_video_heygen
+from schemas import (
+    SolicitudCreate, MallaIterar, AudioRequest, VideoRequest,
+    SolicitudCreateRequest, SolicitudUpdateRequest, ComentarioCreate,
+    SolicitudStatus, Prioridad
+)
+
+# Inicializar Firebase (lazy)
+_app = None
+_db = None
+_bucket = None
+
+
+def get_db():
+    global _app, _db
+    if _app is None:
+        _app = firebase_admin.initialize_app()
+    if _db is None:
+        _db = firestore.client()
+    return _db
+
+
+def get_bucket():
+    global _app, _bucket
+    if _app is None:
+        _app = firebase_admin.initialize_app()
+    if _bucket is None:
+        _bucket = storage.bucket("davivienda-elearning-assets")
+    return _bucket
+
+# Configuración CORS
+cors_options = options.CorsOptions(
+    cors_origins=["*"],
+    cors_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+)
+
+# Opciones comunes para funciones (incluir secrets)
+fn_options = options.HttpsOptions(
+    cors=cors_options,
+    secrets=[OPENAI_API_KEY, ELEVENLABS_API_KEY, HEYGEN_API_KEY],
+)
+
+
+def _response(data: Any, status: int = 200) -> https_fn.Response:
+    """Helper para crear respuestas JSON."""
+    return https_fn.Response(
+        json.dumps(data, default=str, ensure_ascii=False),
+        status=status,
+        headers={"Content-Type": "application/json"}
+    )
+
+
+def _error(message: str, status: int = 400) -> https_fn.Response:
+    """Helper para crear respuestas de error."""
+    return _response({"error": message}, status)
+
+
+def _strip_markdown_json(raw_text: str) -> str:
+    """Limpia bloques markdown ```json ... ``` y deja solo JSON."""
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:])
+        if text.endswith("```"):
+            text = text[:-3]
+    return text.strip()
+
+
+# ============== MALLAS ==============
+
+@https_fn.on_request(
+    cors=cors_options,
+    secrets=[OPENAI_API_KEY]
+)
+def crear_malla(req: https_fn.Request) -> https_fn.Response:
+    """POST /mallas - Crear una nueva malla curricular."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json()
+        solicitud = SolicitudCreate(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Generar malla con GPT-4
+    malla, error = generar_malla(
+        nombre=solicitud.nombre,
+        course_type=solicitud.course_type,
+        audiencia=solicitud.audiencia,
+        nivel=solicitud.nivel,
+        duracion_min=solicitud.duracion_min,
+        objetivo=solicitud.objetivo,
+        temas=solicitud.temas,
+        requiere_eval=solicitud.requiere_eval,
+        documentacion=solicitud.documentacion or "",
+    )
+
+    if error:
+        return _error(f"Error generando malla: {error}", 500)
+
+    # Calcular duración total
+    duracion_total = sum(r.get("duracion_min", 0) for r in malla)
+
+    # Guardar en Firestore
+    doc_ref = get_db().collection("mallas").document()
+    doc_data = {
+        "solicitud": solicitud.model_dump(),
+        "version": 1,
+        "malla": malla,
+        "duracion_total": duracion_total,
+        "historial": [{
+            "version": 1,
+            "feedback": "Generación inicial",
+            "timestamp": datetime.utcnow().isoformat()
+        }],
+        "created_at": SERVER_TIMESTAMP,
+        "updated_at": SERVER_TIMESTAMP,
+    }
+    doc_ref.set(doc_data)
+
+    return _response({
+        "id": doc_ref.id,
+        "version": 1,
+        "malla": malla,
+        "duracion_total": duracion_total,
+    }, 201)
+
+
+@https_fn.on_request(cors=cors_options)
+def obtener_malla(req: https_fn.Request) -> https_fn.Response:
+    """GET /mallas/{id} - Obtener una malla por ID."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    # Extraer ID (query param o path)
+    malla_id = req.args.get("id")
+    if not malla_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            malla_id = path_parts[-1]
+
+    if not malla_id:
+        return _error("Missing malla ID")
+
+    doc = get_db().collection("mallas").document(malla_id).get()
+
+    if not doc.exists:
+        return _error("Malla not found", 404)
+
+    data = doc.to_dict()
+    data["id"] = doc.id
+    return _response(data)
+
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """PUT /mallas/{id} - Iterar malla con feedback."""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    # Extraer ID (query param o path)
+    malla_id = req.args.get("id")
+    if not malla_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            malla_id = path_parts[-1]
+
+    if not malla_id:
+        return _error("Missing malla ID")
+
+    try:
+        data = req.get_json()
+        iterar_req = MallaIterar(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Obtener malla actual
+    doc_ref = get_db().collection("mallas").document(malla_id)
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        return _error("Malla not found", 404)
+
+    doc_data = doc.to_dict()
+    malla_actual = doc_data.get("malla", [])
+
+    # Regenerar con feedback
+    nueva_malla, error = iterar_malla(
+        malla_actual,
+        iterar_req.feedback,
+        course_type=doc_data.get("solicitud", {}).get("course_type", "compliance"),
+    )
+
+    if error:
+        return _error(f"Error iterando malla: {error}", 500)
+
+    # Actualizar versión
+    nueva_version = doc_data.get("version", 1) + 1
+    duracion_total = sum(r.get("duracion_min", 0) for r in nueva_malla)
+
+    historial = doc_data.get("historial", [])
+    historial.append({
+        "version": nueva_version,
+        "feedback": iterar_req.feedback,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+    doc_ref.update({
+        "malla": nueva_malla,
+        "version": nueva_version,
+        "duracion_total": duracion_total,
+        "historial": historial,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "id": malla_id,
+        "version": nueva_version,
+        "malla": nueva_malla,
+        "duracion_total": duracion_total,
+    })
+
+
+@https_fn.on_request(
+    cors=cors_options,
+    secrets=[OPENAI_API_KEY],
+    timeout_sec=540,
+    memory=options.MemoryOption.GB_1,
+)
+def generar_guiones_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """POST /mallas/{id}/guiones - Generar guiones para toda la malla."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    # Extraer ID (query param o path)
+    malla_id = req.args.get("id")
+    if not malla_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            malla_id = path_parts[-2] if path_parts[-1] == "guiones" else path_parts[-1]
+
+    if not malla_id:
+        return _error("Missing malla ID")
+
+    # Obtener malla
+    doc = get_db().collection("mallas").document(malla_id).get()
+    if not doc.exists:
+        return _error("Malla not found", 404)
+
+    doc_data = doc.to_dict()
+    malla = doc_data.get("malla", [])
+    solicitud = doc_data.get("solicitud", {})
+
+    # Generar guiones
+    contexto = {
+        "nombre": solicitud.get("nombre", ""),
+        "course_type": solicitud.get("course_type", "compliance"),
+        "audiencia": solicitud.get("audiencia", ""),
+        "objetivo": solicitud.get("objetivo", ""),
+    }
+
+    guiones, errores = generar_guiones_batch(malla, contexto)
+
+    # Guardar guiones
+    get_db().collection("mallas").document(malla_id).update({
+        "guiones": guiones,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "malla_id": malla_id,
+        "guiones": guiones,
+        "errores": errores if errores else None,
+    })
+
+
+# ============== ITERAR GUION ==============
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+def iterar_guion_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """POST /guiones/iterar - Iterar un guión específico con feedback de IA."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json() or {}
+        malla_id = data.get("malla_id")
+        guion_id = data.get("guion_id")
+        feedback = data.get("feedback")
+        tipo_recurso = data.get("tipo_recurso")
+        contenido_actual = data.get("contenido_actual", {})
+        modo = str(data.get("modo", "iterar") or "iterar").strip().lower()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    if not feedback:
+        return _error("Missing required field: feedback")
+
+    # Llamar a OpenAI
+    from openai import OpenAI
+    from core.config import get_openai_key
+
+    api_key = get_openai_key()
+    if not api_key:
+        return _error("Missing OPENAI_API_KEY", 500)
+
+    client = OpenAI(api_key=api_key)
+
+    # Modo de análisis: NO modifica contenido, solo interpreta intención.
+    if modo == "analizar_intencion":
+        analysis_prompt = f"""Analiza la intención del usuario para iterar contenido e-learning.
+
+CONTEXTO:
+- tipo_recurso: {tipo_recurso}
+- contenido_actual (resumen JSON):
+{json.dumps(contenido_actual, indent=2, ensure_ascii=False)[:5000]}
+
+MENSAJE DEL USUARIO:
+"{feedback}"
+
+Responde SOLO JSON con esta estructura:
+{{
+  "accion": "agregar_slide|cambiar_formato|editar_contenido|editar_estilo|aclarar",
+  "confianza": 0.0,
+  "resumen_entendido": "qué entendiste en una frase",
+  "propuesta": {{
+    "tipo_slide": "detalle_profundo|caso_aplicado|checklist_accion|quiz_rapido|mitos_realidad|null",
+    "tema": "tema principal o null",
+    "formato_visual": "cards_grid|tabs_horizontal|roadmap_timeline|checklist_steps|matrix_2x2|null",
+    "mantener_existente": true
+  }},
+  "pregunta_confirmacion": "pregunta corta para validar"
+}}
+
+Reglas:
+- Si el usuario pide "agregar", "segunda slide", "sumar" => accion="agregar_slide".
+- Si pide rediseño visual/formato => accion="cambiar_formato".
+- Si pide color/fondo/paleta/branding visual => accion="editar_estilo" (NO cambiar_formato).
+- Si pide cambio de texto puntual => accion="editar_contenido".
+- Si es ambiguo => accion="aclarar" y confianza baja.
+- No inventes datos; usa null si no está claro.
+- El campo "mantener_existente" debe ser true cuando el mensaje sugiere sumar/añadir.
+"""
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Responde SOLO JSON válido. Sin markdown."},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                temperature=0.1,
+            )
+            respuesta = _strip_markdown_json(response.choices[0].message.content)
+            resultado = json.loads(respuesta)
+
+            if not isinstance(resultado, dict):
+                return _error("Intent analysis returned non-object JSON", 500)
+
+            accion = str(resultado.get("accion", "editar_contenido")).strip().lower()
+            if accion not in {"agregar_slide", "cambiar_formato", "editar_contenido", "editar_estilo", "aclarar"}:
+                accion = "editar_contenido"
+
+            try:
+                confianza = float(resultado.get("confianza", 0.0))
+            except Exception:
+                confianza = 0.0
+            confianza = max(0.0, min(1.0, confianza))
+
+            propuesta = resultado.get("propuesta", {})
+            if not isinstance(propuesta, dict):
+                propuesta = {}
+
+            return _response({
+                "ok": True,
+                "modo": "analizar_intencion",
+                "accion": accion,
+                "confianza": confianza,
+                "resumen_entendido": str(resultado.get("resumen_entendido", "")).strip(),
+                "propuesta": {
+                    "tipo_slide": propuesta.get("tipo_slide"),
+                    "tema": propuesta.get("tema"),
+                    "formato_visual": propuesta.get("formato_visual"),
+                    "mantener_existente": bool(propuesta.get("mantener_existente", False)),
+                },
+                "pregunta_confirmacion": str(resultado.get("pregunta_confirmacion", "")).strip(),
+            })
+        except json.JSONDecodeError as e:
+            return _error(f"Error parsing AI intent response: {e}", 500)
+        except Exception as e:
+            return _error(f"Error calling OpenAI for intent analysis: {e}", 500)
+
+    if not malla_id or guion_id is None:
+        return _error("Missing required fields: malla_id, guion_id")
+
+    # Obtener malla
+    doc_ref = get_db().collection("mallas").document(malla_id)
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        return _error("Malla not found", 404)
+
+    doc_data = doc.to_dict()
+    guiones = doc_data.get("guiones", [])
+
+    # Encontrar el guión a iterar
+    guion_index = None
+    for i, g in enumerate(guiones):
+        if g.get("id") == guion_id:
+            guion_index = i
+            break
+
+    if guion_index is None:
+        return _error("Guion not found", 404)
+
+    # Check if content is already component-based
+    is_component_mode = isinstance(contenido_actual.get("componentes"), list)
+
+    # Estructura base según tipo de recurso
+    ESTRUCTURAS_TIPO = {
+        "Flashcards": {"titulo": "string", "items": [{"frente": "string", "reverso": "string"}]},
+        "Quiz": {"titulo": "string", "preguntas": [{"pregunta": "string", "opciones": ["a","b","c","d"], "correcta": 0}]},
+        "Infografía": {"titulo": "string", "secciones": [{"icono": "emoji", "titulo": "string", "descripcion": "string"}]},
+        "Comparador": {"titulo": "string", "columnas": ["Col1", "Col2"], "filas": [{"aspecto": "string", "valores": ["v1", "v2"]}]},
+        "Interactivo": {"titulo": "string", "elementos": [{"etiqueta": "string", "contenido_oculto": "string"}]},
+        "Caso práctico": {"escenario": "string", "preguntas": [{"pregunta": "string", "opciones": ["a","b","c"], "correcta": 0, "feedback": "string"}]},
+    }
+
+    estructura_esperada = ESTRUCTURAS_TIPO.get(tipo_recurso, {})
+
+    # Prompt claro y directo
+    prompt = f"""Eres un editor de contenido e-learning. Tu trabajo es MODIFICAR TEXTO, nada más.
+
+CONTENIDO ACTUAL:
+{json.dumps(contenido_actual, indent=2, ensure_ascii=False)}
+
+ESTRUCTURA ESPERADA para {tipo_recurso}:
+{json.dumps(estructura_esperada, indent=2)}
+
+PEDIDO DEL USUARIO: "{feedback}"
+
+=== LO QUE PUEDES HACER ===
+✓ Cambiar cualquier texto (títulos, descripciones, preguntas, respuestas)
+✓ Agregar nuevos items/tarjetas/preguntas siguiendo la estructura
+✓ Eliminar items existentes
+✓ Cambiar emojis/iconos
+✓ Reordenar elementos
+
+=== LO QUE NO PUEDES HACER ===
+✗ Agregar imágenes, logos o URLs de imágenes
+✗ Cambiar posiciones (arriba, abajo, derecha, izquierda)
+✗ Modificar colores o estilos
+✗ Agregar campos que no existen en la estructura
+
+=== RESPUESTA ===
+Si PUEDES hacer el cambio:
+{{"ok": true, "contenido": {{...el JSON actualizado...}}}}
+
+Si NO PUEDES hacer el cambio:
+{{"ok": false, "mensaje": "No puedo [explicación]. Pero sí puedo [alternativa]."}}
+
+Responde SOLO con el JSON, sin texto adicional."""
+
+    try:
+        system_msg = "Responde SOLO con JSON válido. Sin markdown, sin explicaciones, sin ```."
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+        )
+
+        respuesta = _strip_markdown_json(response.choices[0].message.content)
+
+        resultado = json.loads(respuesta)
+
+        # Nuevo formato: {"ok": true/false, "contenido": {...} o "mensaje": "..."}
+        if isinstance(resultado, dict) and "ok" in resultado:
+            if not resultado["ok"]:
+                # La IA dice que no puede hacer el cambio
+                return _response({
+                    "guion_id": guion_id,
+                    "contenido": contenido_actual,  # Devolver el original sin cambios
+                    "no_puede": True,
+                    "mensaje": resultado.get("mensaje", "No puedo hacer ese cambio.")
+                })
+            nuevo_contenido = resultado.get("contenido", resultado)
+        else:
+            # Formato antiguo: el JSON es directamente el contenido
+            nuevo_contenido = resultado
+
+    except json.JSONDecodeError as e:
+        return _error(f"Error parsing AI response: {e}. Response was: {respuesta[:200]}", 500)
+    except Exception as e:
+        return _error(f"Error calling OpenAI: {e}", 500)
+
+    # Actualizar el guión en la base de datos
+    guiones[guion_index]["contenido"] = nuevo_contenido
+    doc_ref.update({
+        "guiones": guiones,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "guion_id": guion_id,
+        "contenido": nuevo_contenido,
+        "cambios": f"Contenido actualizado según: {feedback[:100]}..."
+    })
+
+
+# ============== AUDIO ==============
+
+@https_fn.on_request(cors=cors_options, secrets=[ELEVENLABS_API_KEY])
+def generar_audio_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """POST /audio - Generar audio con ElevenLabs."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json()
+        audio_req = AudioRequest(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Generar audio
+    audio_bytes, error = generar_audio(
+        texto=audio_req.texto,
+        voice_id=audio_req.voice_id,
+        stability=audio_req.stability,
+        similarity_boost=audio_req.similarity_boost,
+        style=audio_req.style,
+    )
+
+    if error:
+        return _error(f"Error generando audio: {error}", 500)
+
+    # Subir a Cloud Storage
+    job_id = str(uuid.uuid4())
+    blob_path = f"audio/{job_id}.mp3"
+    blob = get_bucket().blob(blob_path)
+    blob.upload_from_string(audio_bytes, content_type="audio/mpeg")
+    blob.make_public()
+
+    # Guardar job
+    get_db().collection("jobs").document(job_id).set({
+        "type": "audio",
+        "status": "completed",
+        "result_url": blob.public_url,
+        "created_at": SERVER_TIMESTAMP,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "job_id": job_id,
+        "status": "completed",
+        "audio_url": blob.public_url,
+    })
+
+
+# ============== VIDEO ==============
+
+@https_fn.on_request(cors=cors_options, secrets=[HEYGEN_API_KEY])
+def generar_video_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """POST /video - Iniciar generación de video con HeyGen."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json()
+        video_req = VideoRequest(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Iniciar generación en HeyGen
+    heygen_video_id, error = crear_video_heygen(
+        audio_url=video_req.audio_url,
+        avatar_id=video_req.avatar_id,
+        dimension=video_req.dimension,
+    )
+
+    if error:
+        return _error(f"Error iniciando video: {error}", 500)
+
+    # Crear job para tracking
+    job_id = str(uuid.uuid4())
+    get_db().collection("jobs").document(job_id).set({
+        "type": "video",
+        "status": "processing",
+        "heygen_video_id": heygen_video_id,
+        "created_at": SERVER_TIMESTAMP,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "job_id": job_id,
+        "status": "processing",
+        "message": "Video en proceso. Consulta GET /jobs/{job_id} para el estado.",
+    }, 202)
+
+
+@https_fn.on_request(cors=cors_options, secrets=[HEYGEN_API_KEY])
+def obtener_job(req: https_fn.Request) -> https_fn.Response:
+    """GET /jobs/{id} - Obtener estado de un job."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    # Extraer ID (query param o path)
+    job_id = req.args.get("id")
+    if not job_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            job_id = path_parts[-1]
+
+    if not job_id:
+        return _error("Missing job ID")
+
+    doc = get_db().collection("jobs").document(job_id).get()
+
+    if not doc.exists:
+        return _error("Job not found", 404)
+
+    job_data = doc.to_dict()
+
+    # Si es video en proceso, verificar estado en HeyGen
+    if job_data.get("type") == "video" and job_data.get("status") == "processing":
+        heygen_id = job_data.get("heygen_video_id")
+        if heygen_id:
+            result = verificar_video_heygen(heygen_id)
+
+            if result["status"] == "completed":
+                # Descargar y subir a Storage
+                import requests
+                video_url = result.get("video_url")
+                if video_url:
+                    response = requests.get(video_url)
+                    if response.status_code == 200:
+                        blob_path = f"video/{job_id}.mp4"
+                        blob = get_bucket().blob(blob_path)
+                        blob.upload_from_string(response.content, content_type="video/mp4")
+                        blob.make_public()
+
+                        get_db().collection("jobs").document(job_id).update({
+                            "status": "completed",
+                            "result_url": blob.public_url,
+                            "updated_at": SERVER_TIMESTAMP,
+                        })
+
+                        job_data["status"] = "completed"
+                        job_data["result_url"] = blob.public_url
+
+            elif result["status"] == "failed":
+                get_db().collection("jobs").document(job_id).update({
+                    "status": "failed",
+                    "error": result.get("error"),
+                    "updated_at": SERVER_TIMESTAMP,
+                })
+                job_data["status"] = "failed"
+                job_data["error"] = result.get("error")
+
+    job_data["job_id"] = job_id
+    return _response(job_data)
+
+
+# ============== SOLICITUDES ==============
+
+@https_fn.on_request(cors=cors_options)
+def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
+    """POST /solicitudes - Crear una nueva solicitud de curso."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json()
+        solicitud_req = SolicitudCreateRequest(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Crear documento en Firestore
+    doc_ref = get_db().collection("solicitudes").document()
+    doc_data = {
+        "solicitante": solicitud_req.solicitante.model_dump(),
+        "curso": solicitud_req.curso.model_dump(),
+        "status": SolicitudStatus.PENDIENTE.value,
+        "asignado_a": None,
+        "prioridad": solicitud_req.prioridad.value,
+        "malla_id": None,
+        "created_at": SERVER_TIMESTAMP,
+        "updated_at": SERVER_TIMESTAMP,
+    }
+    doc_ref.set(doc_data)
+
+    return _response({
+        "id": doc_ref.id,
+        "status": SolicitudStatus.PENDIENTE.value,
+        "message": "Solicitud creada exitosamente",
+    }, 201)
+
+
+@https_fn.on_request(cors=cors_options)
+def listar_solicitudes(req: https_fn.Request) -> https_fn.Response:
+    """GET /solicitudes - Listar solicitudes con filtros opcionales."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    # Filtros desde query params
+    status_filter = req.args.get("status")
+    area_filter = req.args.get("area")
+    asignado_filter = req.args.get("asignado_a")
+
+    # Query base - traer todos y filtrar en memoria para evitar problemas de índices
+    query = get_db().collection("solicitudes").order_by("created_at", direction=firestore.Query.DESCENDING)
+
+    # Límite inicial más alto para filtrar en memoria
+    query = query.limit(200)
+
+    # Ejecutar query
+    docs = list(query.stream())
+
+    solicitudes = []
+    limit = int(req.args.get("limit", 50))
+
+    for doc in docs:
+        data = doc.to_dict()
+
+        # Filtros en memoria para evitar problemas de índices compuestos
+        if status_filter and data.get("status") != status_filter:
+            continue
+        if asignado_filter and data.get("asignado_a") != asignado_filter:
+            continue
+        if area_filter:
+            solicitante_area = data.get("solicitante", {}).get("area", "")
+            if area_filter.lower() not in solicitante_area.lower():
+                continue
+
+        # Obtener último comentario (subcolección)
+        comentarios_ref = get_db().collection("solicitudes").document(doc.id).collection("comentarios")
+        ultimo_comentario = None
+        ultimo_comentario_docs = comentarios_ref.order_by("created_at", direction=firestore.Query.DESCENDING).limit(1).stream()
+        for c in ultimo_comentario_docs:
+            ultimo_comentario = c.to_dict().get("texto", "")[:100]
+
+        solicitudes.append({
+            "id": doc.id,
+            "curso_nombre": data.get("curso", {}).get("nombre", "Sin nombre"),
+            "area": data.get("solicitante", {}).get("area", ""),
+            "status": data.get("status", "pendiente"),
+            "prioridad": data.get("prioridad", "media"),
+            "asignado_a": data.get("asignado_a"),
+            "malla_id": data.get("malla_id"),
+            "created_at": data.get("created_at"),
+            "ultimo_comentario": ultimo_comentario,
+        })
+
+        # Aplicar límite después de filtrar
+        if len(solicitudes) >= limit:
+            break
+
+    return _response({
+        "solicitudes": solicitudes,
+        "total": len(solicitudes),
+    })
+
+
+@https_fn.on_request(cors=cors_options)
+def obtener_solicitud(req: https_fn.Request) -> https_fn.Response:
+    """GET /solicitudes/{id} - Obtener una solicitud con sus comentarios."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    # Extraer ID
+    solicitud_id = req.args.get("id")
+    if not solicitud_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            solicitud_id = path_parts[-1]
+
+    if not solicitud_id:
+        return _error("Missing solicitud ID")
+
+    doc = get_db().collection("solicitudes").document(solicitud_id).get()
+
+    if not doc.exists:
+        return _error("Solicitud not found", 404)
+
+    data = doc.to_dict()
+    data["id"] = doc.id
+
+    # Obtener comentarios
+    comentarios_ref = get_db().collection("solicitudes").document(solicitud_id).collection("comentarios")
+    comentarios_docs = comentarios_ref.order_by("created_at").stream()
+
+    comentarios = []
+    for c in comentarios_docs:
+        c_data = c.to_dict()
+        c_data["id"] = c.id
+        comentarios.append(c_data)
+
+    data["comentarios"] = comentarios
+
+    return _response(data)
+
+
+@https_fn.on_request(cors=cors_options)
+def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
+    """PUT /solicitudes/{id} - Actualizar estado, asignación o prioridad."""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    # Extraer ID
+    solicitud_id = req.args.get("id")
+    if not solicitud_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            solicitud_id = path_parts[-1]
+
+    if not solicitud_id:
+        return _error("Missing solicitud ID")
+
+    try:
+        data = req.get_json()
+        update_req = SolicitudUpdateRequest(**data)
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Verificar que existe
+    doc_ref = get_db().collection("solicitudes").document(solicitud_id)
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        return _error("Solicitud not found", 404)
+
+    # Construir actualización
+    update_data = {"updated_at": SERVER_TIMESTAMP}
+
+    if update_req.status is not None:
+        update_data["status"] = update_req.status.value
+    if update_req.asignado_a is not None:
+        update_data["asignado_a"] = update_req.asignado_a
+    if update_req.prioridad is not None:
+        update_data["prioridad"] = update_req.prioridad.value
+    if update_req.malla_id is not None:
+        update_data["malla_id"] = update_req.malla_id
+
+    doc_ref.update(update_data)
+
+    return _response({
+        "id": solicitud_id,
+        "updated": list(update_data.keys()),
+        "message": "Solicitud actualizada",
+    })
+
+
+@https_fn.on_request(cors=cors_options)
+def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
+    """POST /solicitudes/{id}/comentarios - Agregar un comentario a una solicitud."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    # Extraer ID de solicitud
+    solicitud_id = req.args.get("id")
+    if not solicitud_id:
+        path_parts = req.path.strip("/").split("/")
+        # Buscar el ID antes de "comentarios"
+        for i, part in enumerate(path_parts):
+            if part == "comentarios" and i > 0:
+                solicitud_id = path_parts[i - 1]
+                break
+        if not solicitud_id and len(path_parts) >= 2:
+            solicitud_id = path_parts[-2] if path_parts[-1] == "comentarios" else path_parts[-1]
+
+    if not solicitud_id:
+        return _error("Missing solicitud ID")
+
+    try:
+        data = req.get_json()
+        comentario_req = ComentarioCreate(**data)
+        autor_data = data.get("autor", {})
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    # Verificar que la solicitud existe
+    doc = get_db().collection("solicitudes").document(solicitud_id).get()
+    if not doc.exists:
+        return _error("Solicitud not found", 404)
+
+    # Crear comentario en subcolección
+    comentario_ref = get_db().collection("solicitudes").document(solicitud_id).collection("comentarios").document()
+    comentario_data = {
+        "autor": autor_data,
+        "texto": comentario_req.texto,
+        "created_at": SERVER_TIMESTAMP,
+    }
+    comentario_ref.set(comentario_data)
+
+    # Actualizar timestamp de la solicitud
+    get_db().collection("solicitudes").document(solicitud_id).update({
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "id": comentario_ref.id,
+        "solicitud_id": solicitud_id,
+        "message": "Comentario agregado",
+    }, 201)
+
+
+@https_fn.on_request(cors=cors_options)
+def mis_solicitudes(req: https_fn.Request) -> https_fn.Response:
+    """GET /mis-solicitudes - Listar solicitudes de un solicitante por email."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    email = req.args.get("email")
+    if not email:
+        return _error("Missing email parameter")
+
+    # Query por email del solicitante
+    query = get_db().collection("solicitudes").where("solicitante.email", "==", email)
+    query = query.order_by("created_at", direction=firestore.Query.DESCENDING)
+
+    docs = query.stream()
+
+    solicitudes = []
+    for doc in docs:
+        data = doc.to_dict()
+
+        # Obtener último comentario
+        comentarios_ref = get_db().collection("solicitudes").document(doc.id).collection("comentarios")
+        ultimo_comentario = None
+        ultimo_comentario_rol = None
+        ultimo_comentario_docs = comentarios_ref.order_by("created_at", direction=firestore.Query.DESCENDING).limit(1).stream()
+        for c in ultimo_comentario_docs:
+            c_data = c.to_dict()
+            ultimo_comentario = c_data.get("texto", "")[:100]
+            ultimo_comentario_rol = c_data.get("autor", {}).get("rol", "")
+
+        solicitudes.append({
+            "id": doc.id,
+            "curso_nombre": data.get("curso", {}).get("nombre", "Sin nombre"),
+            "status": data.get("status", "pendiente"),
+            "prioridad": data.get("prioridad", "media"),
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "ultimo_comentario": ultimo_comentario,
+            "ultimo_comentario_rol": ultimo_comentario_rol,
+        })
+
+    return _response({
+        "solicitudes": solicitudes,
+        "total": len(solicitudes),
+        "email": email,
+    })
+
+
+# ============== HEALTH ==============
+
+@https_fn.on_request(cors=cors_options)
+def health(req: https_fn.Request) -> https_fn.Response:
+    """GET /health - Health check."""
+    return _response({
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+    })
