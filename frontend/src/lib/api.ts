@@ -26,6 +26,11 @@ const API_URLS = {
   health: "https://health-elrtzny3ba-uc.a.run.app",
 };
 
+// Modo Agente (Claude Agent SDK). Local por defecto; en prod, NEXT_PUBLIC_AGENT_URL
+// apunta al servicio Cloud Run.
+export const AGENT_URL =
+  process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:8090";
+
 // Types
 export interface Solicitante {
   email: string;

@@ -19,6 +19,7 @@ const navItems = [
   { href: "/dashboard/malla", label: "Malla", icon: "grid" },
   { href: "/dashboard/diseno", label: "Diseño", icon: "palette" },
   { href: "/dashboard/contenido", label: "Contenido", icon: "video" },
+  { href: "/dashboard/editor", label: "Editor IA", icon: "sparkles" },
   { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
   { href: "/dashboard/scorm", label: "SCORM", icon: "package" },
   { href: "/dashboard/lms", label: "LMS", icon: "upload" },
@@ -58,6 +59,11 @@ const icons: Record<string, React.ReactNode> = {
   book: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9C13.168 5.477 14.754 5 16.5 5A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253" />
+    </svg>
+  ),
+  sparkles: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L20 12l-6.714 2.143L11 21l-2.286-6.857L2 12l6.714-2.143L11 3z" />
     </svg>
   ),
 };

@@ -922,3 +922,80 @@ function toggleFullscreen() {
 - [ ] Pantalla de resultados muestra aprobado/reprobado
 - [ ] imsmanifest.xml tiene todos los archivos listados
 - [ ] ZIP del SCORM se sube correctamente a Territorium
+
+---
+
+## MODO AGENTE — Editor HTML/CSS/JS con Claude Agent SDK (Jun 2026)
+
+### Por qué
+El editor de contenido actual usa **gpt-4o en single-shot** (`functions/main.py` → `iterar_guion_endpoint`): una sola llamada, sin ver el render, sin verificar, sin reintentar → el output de HTML/CSS/JS queda pobre. El "Modo Agente" replica la potencia de Claude Code: un **loop agéntico que edita → renderiza → ve el error → se autocorrige**.
+
+### Aprendizaje clave: la potencia NO es el modelo, es el harness
+El 80% de la diferencia de calidad viene del **loop de verificación**, no de cambiar de modelo. Claude lee el archivo real, hace un edit puntual, **renderiza con Chrome headless, mira el screenshot con sus propios ojos** y corrige. gpt-4o single-shot nunca ve el resultado. (En el spike el agente detectó "el nav se corta en mobile" mirando el render — imposible de saber leyendo solo el código.)
+
+### Arquitectura (`agent-service/`)
+```
+Frontend Next.js (/dashboard/editor)
+   │  POST /agent/edit  (instruction, model)   ◄── stream SSE de progreso en vivo
+   ▼
+agent-service (Node/Express)
+   - agent.mjs   → núcleo: query() del SDK + VERIFY_INSTRUCTIONS (render headless)
+   - server.mjs  → API SSE + CORS + sirve /workspace (preview) y /public (playground)
+   - spike.mjs   → demo CLI
+   - public/index.html → playground local standalone
+   - sample-workspace/ → proyecto HTML de prueba (+ .orig backup)
+```
+
+### Cómo correr local
+```bash
+cd agent-service && npm install          # instala @anthropic-ai/claude-agent-sdk
+PORT=8090 node server.mjs                # servidor + playground en http://localhost:8090
+# o el spike directo:
+node spike.mjs "tu instrucción de edición"
+```
+- Playground standalone: http://localhost:8090
+- Integrado al dashboard: levantar el frontend (`cd frontend && npm run dev`) → menú **"Editor IA"** → `/dashboard/editor`.
+
+### Claude Agent SDK — config que usamos (`agent.mjs`)
+- Paquete: `@anthropic-ai/claude-agent-sdk` (v0.3.x). Entry: `query(prompt, options)` → async iterator de mensajes (`system/init`, `assistant`, `result`).
+- Opciones clave:
+  - `cwd`: directorio del proyecto a editar.
+  - `model`: `claude-haiku-4-5` | `claude-sonnet-4-6` (default) | `claude-opus-4-8`.
+  - `systemPrompt: { type:"preset", preset:"claude_code", append: VERIFY_INSTRUCTIONS }` — hereda todo el comportamiento de Claude Code y le sumamos las reglas de verificación.
+  - `permissionMode: "bypassPermissions"` — sin prompts (SOLO dentro de contenedor aislado en prod).
+  - `disallowedTools`, `settingSources: []` — aislamiento.
+- El SDK **spawnea el CLI de Claude Code** → el contenedor de prod debe incluirlo además del paquete npm.
+
+### Auth y FACTURACIÓN (crítico)
+- **Local**: el `.env` tiene `ANTHROPIC_API_KEY` VACÍO → el SDK usa la **sesión del CLI de Claude logueado = la suscripción Claude Max** del usuario (`auth: cli-session`). El `total_cost_usd` que reporta es solo *estimación* equivalente API; local NO se cobra aparte, pero **consume el cupo/rate-limit de Max** (~88k tok/5h en Max 5x, ~220k en Max 20x + tope semanal).
+- **Producción (Cloud Run multiusuario)**: NO se puede usar el login Max personal (va contra ToS + rate limits te bloquean). **Requiere API key de Anthropic → pay-per-token real.**
+- Precios API (jun 2026, por millón de tokens): Haiku 4.5 $1/$5 · Sonnet 4.6 $3/$15 · Opus 4.7/4.8 $5/$25. Caché de prompt = −90% en lo cacheado.
+- Costo medido por edición (Sonnet, optimizado): **~$0.10–0.15**. Haiku ~$0.05, Opus ~$0.25–0.30.
+- **Regla de decisión**: Max para tu desarrollo personal (gratis en la práctica). API key para hostear a empresas (compliant + sin paredes de rate limit). Le facturás a la empresa costo API + margen.
+
+### Optimizaciones de costo aplicadas
+- Render a media resolución: `--force-device-scale-factor=0.5` (imágenes ~4× más livianas).
+- Tope de 2 rondas de autocorrección (antes iteraba sin límite).
+- Saltear el render si el cambio es solo de texto.
+- Selector de modelo Haiku/Sonnet/Opus por edición.
+
+### Stream SSE (formato que consume el frontend)
+```
+event: init   data: {"sessionId":"..."}
+event: text   data: {"kind":"text","text":"..."}
+event: tool   data: {"kind":"tool","name":"Edit","detail":"..."}
+event: result data: {"costUsd":0.17,"toolCalls":11,"subtype":"success"}
+event: done   data: {"sessionId":"...","costUsd":...,"toolCalls":...}
+```
+El frontend lo lee con `fetch` + `ReadableStream` (no `EventSource`, porque el endpoint es POST).
+
+### Estado y pendientes
+- ✅ Fase 0 (spike) · ✅ Servidor SSE · ✅ Fase 2 (integrado a `/dashboard/editor`)
+- ⬜ **Fase 1**: Dockerfile (Node+Chrome+CLI) + sync con Firebase Storage `agents/{sessionId}/` + deploy a Cloud Run (necesita API key + GCP).
+- ⬜ **Fase 3**: validar Firebase ID token en el servicio, sandbox reforzado, `resume` multiturno.
+- Plan completo: `~/.claude/plans/mellow-seeking-map.md`.
+
+### Gotchas
+- macOS arm64: si numpy/pandas/lxml dan `incompatible architecture (x86_64)`, reinstalar con `pip install --force-reinstall --no-cache-dir` (eran wheels x86_64 en Mac arm64).
+- El frontend Next.js (16.x) tiene un `AGENTS.md` que avisa que difiere de versiones conocidas → copiar patrones de páginas existentes en vez de asumir.
+- La app Streamlit vieja se movió a `streamlit-legacy/` (Dockerfile actualizado para deployar desde ahí).

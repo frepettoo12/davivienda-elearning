@@ -1,0 +1,16 @@
+{
+  "name": "claude-agent-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Modo Agente: editor HTML/CSS/JS con el motor de Claude (Claude Agent SDK)",
+  "scripts": {
+    "spike": "node spike.mjs",
+    "dev": "node server.mjs",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.161",
+    "express": "^4.21.2"
+  }
+}

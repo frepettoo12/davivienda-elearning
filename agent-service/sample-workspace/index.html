@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curso Davivienda</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="logo">Davivienda</span>
+    <nav>
+      <a href="#m1">Módulo 1</a>
+      <a href="#m2">Módulo 2</a>
+      <a href="#m3">Módulo 3</a>
+      <a href="#flashcards">Flashcards</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Bienvenido al curso de Cumplimiento Normativo</h1>
+      <p class="codigo">Codigo de referencia: DAVI-2026-FATCA-CRS-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</p>
+      <button class="cta">Comenzar</button>
+    </section>
+
+    <section class="modulos">
+      <div class="card" id="m1"><h2>Módulo 1</h2><p>Introducción a FATCA y CRS.</p></div>
+      <div class="card" id="m2"><h2>Módulo 2</h2><p>Identificación de clientes.</p></div>
+      <div class="card" id="m3"><h2>Módulo 3</h2><p>Documentación requerida.</p></div>
+    </section>
+
+    <!-- FLASHCARDS -->
+    <section class="fc-section" id="flashcards">
+      <h2 class="fc-section-title">Flashcards de Repaso</h2>
+      <p class="fc-section-sub">Hacé clic en la tarjeta para ver la respuesta</p>
+
+      <div class="fc-tabs">
+        <button class="fc-tab active" data-module="0">Módulo 1</button>
+        <button class="fc-tab" data-module="1">Módulo 2</button>
+        <button class="fc-tab" data-module="2">Módulo 3</button>
+      </div>
+
+      <div class="fc-module-label" id="fc-module-label">Introducción a FATCA y CRS</div>
+
+      <div class="fc-wrapper">
+        <p class="fc-counter">Tarjeta <span id="fc-num">1</span> de <span id="fc-total">4</span></p>
+
+        <div class="fc-card" id="fc-card" onclick="flipCard()">
+          <div class="fc-inner" id="fc-inner">
+            <div class="fc-face fc-front">
+              <span class="fc-badge">Pregunta</span>
+              <p id="fc-question"></p>
+              <span class="fc-hint">↩ clic para ver respuesta</span>
+            </div>
+            <div class="fc-face fc-back">
+              <span class="fc-badge fc-badge-back">Respuesta</span>
+              <p id="fc-answer"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="fc-nav">
+          <button class="fc-nav-btn" id="fc-prev" onclick="navigate(-1)">← Anterior</button>
+          <div class="fc-dots" id="fc-dots"></div>
+          <button class="fc-nav-btn" id="fc-next" onclick="navigate(1)">Siguiente →</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><p>© 2026 Davivienda</p></footer>
+
+  <script>
+    const MODULES = [
+      {
+        label: "Introducción a FATCA y CRS",
+        cards: [
+          {
+            q: "¿Qué es FATCA?",
+            a: "Foreign Account Tax Compliance Act. Ley estadounidense que obliga a instituciones financieras extranjeras a reportar al IRS las cuentas de ciudadanos y residentes fiscales de EE.UU."
+          },
+          {
+            q: "¿Qué es CRS?",
+            a: "Common Reporting Standard. Estándar de la OCDE que establece el intercambio automático de información financiera entre países participantes para combatir la evasión fiscal."
+          },
+          {
+            q: "¿Cuál es el objetivo principal de FATCA y CRS?",
+            a: "Garantizar la transparencia fiscal: que los ingresos y activos mantenidos en cuentas extranjeras sean reportados a las autoridades tributarias correspondientes de cada país."
+          },
+          {
+            q: "¿A qué tipo de entidades aplica FATCA?",
+            a: "A todas las Instituciones Financieras Extranjeras (FFI) que tengan clientes con nexo fiscal con EE.UU. Davivienda, como FFI, debe identificar y reportar esas cuentas al IRS."
+          },
+          {
+            q: "¿Qué es el GIIN?",
+            a: "Global Intermediary Identification Number. Número único que el IRS asigna a las FFI registradas bajo FATCA. Davivienda debe incluirlo en sus reportes al IRS para acreditar su cumplimiento."
+          },
+          {
+            q: "¿Qué es el withholding FATCA?",
+            a: "Retención del 30% que aplica sobre pagos de fuente estadounidense a instituciones o personas que no cumplen con FATCA o no están correctamente documentadas."
+          }
+        ]
+      },
+      {
+        label: "Identificación de Clientes",
+        cards: [
+          {
+            q: "¿Qué es la Debida Diligencia del Cliente (DDC)?",
+            a: "Proceso de recopilación y verificación de información para determinar el estatus fiscal de cada cliente e identificar si su cuenta es reportable bajo FATCA o CRS."
+          },
+          {
+            q: "¿Qué es una 'US Person'?",
+            a: "Ciudadano o residente de EE.UU., incluyendo titulares de Green Card y personas nacidas en ese país. Deben ser identificadas y reportadas bajo FATCA."
+          },
+          {
+            q: "¿Qué son las 'US indicia'?",
+            a: "Indicios de vínculo fiscal con EE.UU.: dirección postal, número de teléfono, lugar de nacimiento, instrucciones de pago o poder notarial en territorio estadounidense."
+          },
+          {
+            q: "¿Cómo se clasifica una cuenta bajo CRS?",
+            a: "Según la residencia fiscal declarada por el titular. Si reside en un país participante distinto a Colombia, la cuenta es reportable a la autoridad tributaria de ese país."
+          },
+          {
+            q: "¿Qué diferencia hay entre cuenta preexistente y cuenta nueva en FATCA?",
+            a: "Cuenta preexistente: abierta antes del 1 de julio de 2014. Cuenta nueva: abierta desde esa fecha. Las reglas y plazos de Debida Diligencia son distintos para cada categoría."
+          },
+          {
+            q: "¿Qué ocurre si un cliente no entrega la documentación requerida?",
+            a: "La cuenta se clasifica como recalcitrante: queda sujeta a retención del 30% sobre pagos de fuente estadounidense y debe reportarse como cuenta no documentada."
+          }
+        ]
+      },
+      {
+        label: "Documentación Requerida",
+        cards: [
+          {
+            q: "¿Qué es el formulario W-9?",
+            a: "Formulario del IRS que certifica el Número de Identificación del Contribuyente (TIN) de una persona de EE.UU. Se solicita a clientes identificados como US Persons."
+          },
+          {
+            q: "¿Qué es el formulario W-8BEN?",
+            a: "Formulario que certifica que una persona natural NO es contribuyente de EE.UU. Permite reducir o eliminar la retención del 30% (withholding) exigida por FATCA."
+          },
+          {
+            q: "¿Qué es el CRS Self-Certification?",
+            a: "Formulario de autocertificación donde el cliente declara su residencia fiscal y NIF (Número de Identificación Fiscal) en cada país donde sea residente a efectos fiscales."
+          },
+          {
+            q: "¿Cada cuánto tiempo se actualiza la documentación?",
+            a: "Cada 3 años, o de inmediato ante cualquier cambio de circunstancias: cambio de dirección, nacionalidad, estatus migratorio o cualquier indicio de nuevo vínculo fiscal."
+          },
+          {
+            q: "¿Cuál es la diferencia entre W-8BEN y W-8BEN-E?",
+            a: "W-8BEN aplica a personas naturales; W-8BEN-E aplica a entidades (empresas, fondos, fideicomisos). Ambos certifican el estatus de no-residente fiscal de EE.UU. ante FATCA."
+          }
+        ]
+      }
+    ];
+
+    let currentModule = 0;
+    let currentCard = 0;
+    let flipped = false;
+
+    function render() {
+      const mod = MODULES[currentModule];
+      const card = mod.cards[currentCard];
+      const total = mod.cards.length;
+
+      document.getElementById('fc-module-label').textContent = mod.label;
+      document.getElementById('fc-num').textContent = currentCard + 1;
+      document.getElementById('fc-total').textContent = total;
+      document.getElementById('fc-question').textContent = card.q;
+      document.getElementById('fc-answer').textContent = card.a;
+
+      // reset flip
+      flipped = false;
+      document.getElementById('fc-inner').classList.remove('flipped');
+
+      // dots
+      const dots = document.getElementById('fc-dots');
+      dots.innerHTML = '';
+      for (let i = 0; i < total; i++) {
+        const d = document.createElement('span');
+        d.className = 'fc-dot' + (i === currentCard ? ' active' : '');
+        d.onclick = (function(idx){ return function(){ currentCard = idx; render(); }; })(i);
+        dots.appendChild(d);
+      }
+
+      document.getElementById('fc-prev').disabled = currentCard === 0;
+      document.getElementById('fc-next').disabled = currentCard === total - 1;
+    }
+
+    function flipCard() {
+      flipped = !flipped;
+      document.getElementById('fc-inner').classList.toggle('flipped', flipped);
+    }
+
+    function navigate(dir) {
+      const total = MODULES[currentModule].cards.length;
+      currentCard = Math.max(0, Math.min(total - 1, currentCard + dir));
+      render();
+    }
+
+    document.querySelectorAll('.fc-tab').forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        document.querySelectorAll('.fc-tab').forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        currentModule = parseInt(tab.dataset.module);
+        currentCard = 0;
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

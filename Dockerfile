@@ -9,14 +9,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for caching
-COPY requirements.txt .
+COPY streamlit-legacy/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app files
-COPY app.py .
-COPY api_client.py .
-COPY auth.py .
-COPY .streamlit .streamlit
+# Copy app files (Streamlit app relocated to streamlit-legacy/)
+COPY streamlit-legacy/app.py .
+COPY streamlit-legacy/api_client.py .
+COPY streamlit-legacy/auth.py .
+COPY streamlit-legacy/.streamlit .streamlit
 
 # Expose port
 EXPOSE 8080
