@@ -1064,6 +1064,42 @@ El `@` en la caja de comentarios (`dashboard/solicitudes/[id]`) autocompleta des
   `functions/.env`.
 - Endpoints con email declaran `secrets=[SENDGRID_API_KEY]`.
 
+## APRENDIZAJES TRANSVERSALES (gotchas no obvios, jun 2026)
+
+- **Polling de jobs (audio/video)**: `obtener_job` lee el query param **`?id=`** (no `job_id`) y el job
+  guarda la URL como **`result_url`** (no `output_url`). El front normaliza ambos en `obtenerJob`.
+  Además: el polling debe **reintentar ante errores** y **reanudarse al cargar** (persistir `video_job_id`
+  en el guión) — si no, HeyGen termina pero nadie cierra el job → queda "processing" para siempre.
+- **HTML del agente self-contained**: las rutas relativas (`<img src="logo.png">`) solo resuelven dentro
+  de `/ws/{key}/`. Para que el HTML sirva fuera (srcDoc, composición, SCORM) el agent-service **inlinea
+  las imágenes como data URI** al devolver el `done.html`. Regla general: lo que se persiste/empaqueta debe
+  ser self-contained.
+- **Composición de video → Storage**: el agent-service sube el MP4 compuesto a
+  `gs://davivienda-elearning-assets/composed/` con `@google-cloud/storage` (usa ADC local) y devuelve URL
+  durable. Sin eso, el compuesto vive solo en localhost y el preview/SCORM no lo ven.
+- **Persistencia de Contenido (Fase B)**: lo que edita el agente y las URLs de media se persisten en
+  `guion.contenido` vía `guardar_guion` (campos `html`, `audio_url`, `video_url`, `composed_url`,
+  `panel_html`). Sin esto, todo vive en estado del front y se pierde al recargar.
+- **Estado de la corrida del agente**: vive en `AgentJobsContext` (en el layout) → sobrevive navegar.
+  Los editores inicializan `hasEdited`/`hasAgentHtml` mirando si ya hay un job, para mostrar el workspace
+  en vivo al volver (si no, el preview se "resetea" a la semilla).
+- **Next 16**: bloquea un 2º `next dev` del mismo proyecto. Bypass: `distDir` por env
+  (`NEXT_DISTDIR=.next-solicitante next dev -p 3001`).
+- **Deploy de Functions**: si tarda en el análisis, `FUNCTIONS_DISCOVERY_TIMEOUT=120 firebase deploy`.
+  Funciones con `SecretParam` **requieren que el secret exista** para deployar (si no, pide valor y se cuelga
+  en modo no interactivo): setear un placeholder primero (`printf x | firebase functions:secrets:set NAME --data-file=- --force`).
+- **Firestore queries compuestas** (`where(...).order_by(otro_campo)`) **piden índice compuesto** → si no
+  existe, 500. Patrón del repo: filtrar por igualdad y **ordenar en memoria**.
+- **Auth (race)**: fijar `localStorage.userRole` **antes** de `signInWithPopup`, porque
+  `onAuthStateChanged` se dispara al completar el login y lee ese valor (si no, un dominio de Learning cae
+  por default en rol learning aunque hayas elegido solicitante).
+- **Campos del guión varían**: ej. flashcards en `tarjetas` (no `items`); slides como `slides[].bullets`.
+  Los generadores deben aceptar varios nombres (`tarjetas||items||flashcards`, `bullets||puntos`).
+- **Música = fondo, no player**: la música va como control flotante chico (loop, bajo volumen), NO un
+  `<audio controls>` grande que ocupa el contenido.
+- **Preview = realidad**: el preview en página debe usar el MISMO HTML standalone que "Ver Recurso Final"
+  (vía `srcDoc`/iframe), no un render React aparte; si no, se ven distintos.
+
 ## MODO AGENTE — Editor HTML/CSS/JS con Claude Agent SDK (Jun 2026)
 
 ### Por qué
