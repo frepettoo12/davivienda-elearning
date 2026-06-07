@@ -1,28 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { misSolicitudes, SolicitudListItem, STATUS_CONFIG, PRIORIDAD_CONFIG } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 
 export default function MisSolicitudesPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const { user } = useAuth();
   const [solicitudes, setSolicitudes] = useState<SolicitudListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSearch = async () => {
-    if (!email.trim()) return;
+  const email = user?.email || "";
+
+  const search = useCallback(async (mail: string) => {
+    if (!mail.trim()) return;
     setLoading(true);
     setError(null);
     setSearched(true);
     try {
-      const result = await misSolicitudes(email);
+      const result = await misSolicitudes(mail);
       setSolicitudes(result.solicitudes);
     } catch (err) {
       setError("Error al buscar solicitudes");
@@ -30,7 +32,12 @@ export default function MisSolicitudesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Carga automática con el email de la cuenta de Google autenticada.
+  useEffect(() => {
+    if (email) void search(email);
+  }, [email, search]);
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "-";
@@ -48,29 +55,23 @@ export default function MisSolicitudesPage() {
         <p className="text-gray-500">Consulta el estado de tus solicitudes</p>
       </div>
 
-      {/* Search */}
+      {/* Cuenta + actualizar */}
       <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex gap-3">
-            <Input
-              type="email"
-              placeholder="Ingresa tu email para ver tus solicitudes"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="flex-1"
-            />
-            <Button onClick={handleSearch} disabled={loading || !email.trim()}>
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Buscando...
-                </span>
-              ) : (
-                "Buscar"
-              )}
-            </Button>
+        <CardContent className="flex items-center gap-3 py-4">
+          <div className="flex-1">
+            <p className="text-xs text-gray-500">Mostrando solicitudes de</p>
+            <p className="text-sm font-medium text-gray-900">{email || "—"}</p>
           </div>
+          <Button variant="outline" onClick={() => search(email)} disabled={loading || !email}>
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                Actualizando...
+              </span>
+            ) : (
+              "↻ Actualizar"
+            )}
+          </Button>
         </CardContent>
       </Card>
 
@@ -153,7 +154,16 @@ export default function MisSolicitudesPage() {
         </>
       )}
 
-      {!searched && (
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center gap-3 py-12 text-gray-500">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" />
+            Cargando tus solicitudes...
+          </CardContent>
+        </Card>
+      )}
+
+      {!searched && !loading && (
         <Card>
           <CardContent className="py-12 text-center">
             <div className="mb-4 flex justify-center">
@@ -161,7 +171,7 @@ export default function MisSolicitudesPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
-            <p className="text-gray-500">Ingresa tu email para ver tus solicitudes</p>
+            <p className="text-gray-500">Iniciá sesión para ver tus solicitudes</p>
           </CardContent>
         </Card>
       )}

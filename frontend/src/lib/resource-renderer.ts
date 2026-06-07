@@ -46,19 +46,6 @@ const BASE_STYLES = `
     align-items: center;
     gap: 12px;
   }
-  .music-indicator {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: rgba(0,0,0,0.5);
-    padding: 12px 20px;
-    border-radius: 30px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-  }
-  .music-indicator:hover { background: rgba(0,0,0,0.7); }
 `;
 
 export function generateInfografiaHTML(guion: Guion): string {
@@ -143,31 +130,6 @@ export function generateInfografiaHTML(guion: Guion): string {
     </div>
   </div>
 
-  <div class="music-indicator" onclick="toggleMusic()">
-    <span id="musicIcon">🔇</span>
-    <span>Música ambiente</span>
-  </div>
-
-  <audio id="bgMusic" loop>
-    <source src="https://storage.googleapis.com/davivienda-elearning-assets/audio/ambient.mp3" type="audio/mpeg">
-  </audio>
-
-  <script>
-    let musicPlaying = false;
-    function toggleMusic() {
-      const audio = document.getElementById('bgMusic');
-      const icon = document.getElementById('musicIcon');
-      if (musicPlaying) {
-        audio.pause();
-        icon.textContent = '🔇';
-      } else {
-        audio.volume = 0.3;
-        audio.play().catch(() => {});
-        icon.textContent = '🔊';
-      }
-      musicPlaying = !musicPlaying;
-    }
-  </script>
 </body>
 </html>`;
 }
@@ -256,24 +218,7 @@ export function generateComparadorHTML(guion: Guion): string {
     </div>
   </div>
 
-  <div class="music-indicator" onclick="toggleMusic()">
-    <span id="musicIcon">🔇</span>
-    <span>Música ambiente</span>
-  </div>
-
-  <audio id="bgMusic" loop>
-    <source src="https://storage.googleapis.com/davivienda-elearning-assets/audio/ambient.mp3" type="audio/mpeg">
-  </audio>
-
   <script>
-    let musicPlaying = false;
-    function toggleMusic() {
-      const audio = document.getElementById('bgMusic');
-      const icon = document.getElementById('musicIcon');
-      if (musicPlaying) { audio.pause(); icon.textContent = '🔇'; }
-      else { audio.volume = 0.3; audio.play().catch(() => {}); icon.textContent = '🔊'; }
-      musicPlaying = !musicPlaying;
-    }
   </script>
 </body>
 </html>`;
@@ -377,26 +322,9 @@ export function generateInteractivoHTML(guion: Guion): string {
     </div>
   </div>
 
-  <div class="music-indicator" onclick="toggleMusic()">
-    <span id="musicIcon">🔇</span>
-    <span>Música ambiente</span>
-  </div>
-
-  <audio id="bgMusic" loop>
-    <source src="https://storage.googleapis.com/davivienda-elearning-assets/audio/ambient.mp3" type="audio/mpeg">
-  </audio>
-
   <script>
     function toggleAccordion(el) {
       el.classList.toggle('open');
-    }
-    let musicPlaying = false;
-    function toggleMusic() {
-      const audio = document.getElementById('bgMusic');
-      const icon = document.getElementById('musicIcon');
-      if (musicPlaying) { audio.pause(); icon.textContent = '🔇'; }
-      else { audio.volume = 0.3; audio.play().catch(() => {}); icon.textContent = '🔊'; }
-      musicPlaying = !musicPlaying;
     }
   </script>
 </body>
@@ -404,11 +332,19 @@ export function generateInteractivoHTML(guion: Guion): string {
 }
 
 export function generateFlashcardsHTML(guion: Guion): string {
+  // Las tarjetas pueden venir como `tarjetas`, `items` o `flashcards`,
+  // y cada tarjeta como frente/reverso o pregunta/respuesta.
   const c = guion.contenido as {
-    items?: Array<{ frente: string; reverso: string }>;
+    items?: Array<Record<string, string>>;
+    tarjetas?: Array<Record<string, string>>;
+    flashcards?: Array<Record<string, string>>;
   };
 
-  const items = c.items || [];
+  const raw = c.tarjetas || c.items || c.flashcards || [];
+  const items = raw.map((t) => ({
+    frente: t.frente || t.pregunta || t.front || "",
+    reverso: t.reverso || t.respuesta || t.back || "",
+  }));
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -508,24 +444,7 @@ export function generateFlashcardsHTML(guion: Guion): string {
     </div>
   </div>
 
-  <div class="music-indicator" onclick="toggleMusic()">
-    <span id="musicIcon">🔇</span>
-    <span>Música ambiente</span>
-  </div>
-
-  <audio id="bgMusic" loop>
-    <source src="https://storage.googleapis.com/davivienda-elearning-assets/audio/ambient.mp3" type="audio/mpeg">
-  </audio>
-
   <script>
-    let musicPlaying = false;
-    function toggleMusic() {
-      const audio = document.getElementById('bgMusic');
-      const icon = document.getElementById('musicIcon');
-      if (musicPlaying) { audio.pause(); icon.textContent = '🔇'; }
-      else { audio.volume = 0.3; audio.play().catch(() => {}); icon.textContent = '🔊'; }
-      musicPlaying = !musicPlaying;
-    }
   </script>
 </body>
 </html>`;
@@ -665,15 +584,6 @@ export function generateQuizHTML(guion: Guion): string {
     </div>
   </div>
 
-  <div class="music-indicator" onclick="toggleMusic()">
-    <span id="musicIcon">🔇</span>
-    <span>Música quiz</span>
-  </div>
-
-  <audio id="bgMusic" loop>
-    <source src="https://storage.googleapis.com/davivienda-elearning-assets/audio/quiz.mp3" type="audio/mpeg">
-  </audio>
-
   <script>
     let currentQ = 0;
     let score = 0;
@@ -717,18 +627,12 @@ export function generateQuizHTML(guion: Guion): string {
           document.querySelectorAll('.question').forEach(el => el.style.display = 'none');
           document.getElementById('finalResult').style.display = 'block';
           document.getElementById('scoreText').textContent = 'Obtuviste ' + score + '/' + total + ' (' + Math.round(score/total*100) + '%)';
+          // Reportar score al player SCORM (si está embebido en un iframe)
+          try { window.parent.postMessage({ type: 'scorm-quiz-score', score: score, total: total }, '*'); } catch (e) {}
         }
       }, 1500);
     }
 
-    let musicPlaying = false;
-    function toggleMusic() {
-      const audio = document.getElementById('bgMusic');
-      const icon = document.getElementById('musicIcon');
-      if (musicPlaying) { audio.pause(); icon.textContent = '🔇'; }
-      else { audio.volume = 0.3; audio.play().catch(() => {}); icon.textContent = '🔊'; }
-      musicPlaying = !musicPlaying;
-    }
   </script>
 </body>
 </html>`;
@@ -876,32 +780,29 @@ export function generateCasoPracticoHTML(guion: Guion): string {
 </html>`;
 }
 
-export function openResourceInNewTab(guion: Guion, tipo: string): void {
-  let html = '';
-
+// Genera el HTML standalone de un recurso a partir de su guión JSON.
+// Es la "semilla" que edita el Modo Agente en la fase de Contenido.
+export function generateResourceHTML(guion: Guion, tipo: string): string {
   switch (tipo) {
     case 'Infografía':
-      html = generateInfografiaHTML(guion);
-      break;
+      return generateInfografiaHTML(guion);
     case 'Comparador':
-      html = generateComparadorHTML(guion);
-      break;
+      return generateComparadorHTML(guion);
     case 'Interactivo':
-      html = generateInteractivoHTML(guion);
-      break;
+      return generateInteractivoHTML(guion);
     case 'Flashcards':
-      html = generateFlashcardsHTML(guion);
-      break;
+      return generateFlashcardsHTML(guion);
     case 'Quiz':
-      html = generateQuizHTML(guion);
-      break;
+      return generateQuizHTML(guion);
     case 'Caso práctico':
-      html = generateCasoPracticoHTML(guion);
-      break;
+      return generateCasoPracticoHTML(guion);
     default:
-      html = `<html><body><h1>Tipo no soportado: ${tipo}</h1><pre>${JSON.stringify(guion.contenido, null, 2)}</pre></body></html>`;
+      return `<html><body><h1>Tipo no soportado: ${tipo}</h1><pre>${JSON.stringify(guion.contenido, null, 2)}</pre></body></html>`;
   }
+}
 
+export function openResourceInNewTab(guion: Guion, tipo: string): void {
+  const html = generateResourceHTML(guion, tipo);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');

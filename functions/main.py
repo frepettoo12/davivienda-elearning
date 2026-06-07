@@ -33,11 +33,14 @@ from google.cloud.firestore import SERVER_TIMESTAMP
 OPENAI_API_KEY = SecretParam("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = SecretParam("ELEVENLABS_API_KEY")
 HEYGEN_API_KEY = SecretParam("HEYGEN_API_KEY")
+SENDGRID_API_KEY = SecretParam("SENDGRID_API_KEY")
 
 from core.services.malla_service import generar_malla, iterar_malla
 from core.services.guion_service import generar_guiones_batch
 from core.generators.audio import generar_audio
 from core.generators.video import crear_video_heygen, verificar_video_heygen
+from core.generators.scorm import empaquetar_scorm, DEFAULT_SHELL
+from core import notifications
 from schemas import (
     SolicitudCreate, MallaIterar, AudioRequest, VideoRequest,
     SolicitudCreateRequest, SolicitudUpdateRequest, ComentarioCreate,
@@ -258,6 +261,95 @@ def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
         "version": nueva_version,
         "malla": nueva_malla,
         "duracion_total": duracion_total,
+    })
+
+
+@https_fn.on_request(cors=cors_options)
+def guardar_guion(req: https_fn.Request) -> https_fn.Response:
+    """PUT /guion - Persistir el contenido de un guión (HTML editado por el agente,
+    URLs de audio/video, etc.) dentro del array `guiones` de la malla.
+    Body: { malla_id, guion_id, contenido: {...campos a mergear} }"""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json()
+        malla_id = data.get("malla_id")
+        guion_id = data.get("guion_id")
+        contenido = data.get("contenido") or {}
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    if not malla_id or guion_id is None:
+        return _error("Faltan 'malla_id' / 'guion_id'")
+
+    doc_ref = get_db().collection("mallas").document(malla_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        return _error("Malla not found", 404)
+
+    md = doc.to_dict()
+    guiones = md.get("guiones", [])
+    found = False
+    for g in guiones:
+        if g.get("id") == guion_id:
+            g["contenido"] = {**(g.get("contenido") or {}), **contenido}
+            found = True
+            break
+    if not found:
+        return _error("Guion not found", 404)
+
+    doc_ref.update({"guiones": guiones, "updated_at": SERVER_TIMESTAMP})
+    return _response({"ok": True, "malla_id": malla_id, "guion_id": guion_id})
+
+
+@https_fn.on_request(cors=cors_options)
+def guardar_malla(req: https_fn.Request) -> https_fn.Response:
+    """PUT /mallas/{id} - Guardar la malla editada manualmente (sobreescribe el array)."""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    malla_id = req.args.get("id")
+    if not malla_id:
+        path_parts = req.path.strip("/").split("/")
+        if len(path_parts) >= 2:
+            malla_id = path_parts[-1]
+    if not malla_id:
+        return _error("Missing malla ID")
+
+    try:
+        data = req.get_json()
+        nueva_malla = data.get("malla")
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    if not isinstance(nueva_malla, list):
+        return _error("Falta 'malla' (lista de recursos)")
+
+    doc_ref = get_db().collection("mallas").document(malla_id)
+    if not doc_ref.get().exists:
+        return _error("Malla not found", 404)
+
+    # Reindexar ids secuenciales y normalizar duracion_min a entero.
+    for i, item in enumerate(nueva_malla):
+        item["id"] = i + 1
+        try:
+            item["duracion_min"] = int(item.get("duracion_min", 0) or 0)
+        except (ValueError, TypeError):
+            item["duracion_min"] = 0
+
+    duracion_total = sum(r.get("duracion_min", 0) for r in nueva_malla)
+    doc_ref.update({
+        "malla": nueva_malla,
+        "duracion_total": duracion_total,
+        "updated_at": SERVER_TIMESTAMP,
+    })
+
+    return _response({
+        "id": malla_id,
+        "malla": nueva_malla,
+        "duracion_total": duracion_total,
+        "message": "Malla guardada",
     })
 
 
@@ -706,7 +798,7 @@ def obtener_job(req: https_fn.Request) -> https_fn.Response:
 
 # ============== SOLICITUDES ==============
 
-@https_fn.on_request(cors=cors_options)
+@https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
 def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
     """POST /solicitudes - Crear una nueva solicitud de curso."""
     if req.method != "POST":
@@ -731,6 +823,14 @@ def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
         "updated_at": SERVER_TIMESTAMP,
     }
     doc_ref.set(doc_data)
+
+    # Notificar al equipo Learning (best-effort)
+    notifications.notify_nueva_solicitud(
+        doc_ref.id,
+        solicitud_req.curso.nombre,
+        solicitud_req.solicitante.nombre,
+        solicitud_req.solicitante.area,
+    )
 
     return _response({
         "id": doc_ref.id,
@@ -786,6 +886,8 @@ def listar_solicitudes(req: https_fn.Request) -> https_fn.Response:
             "id": doc.id,
             "curso_nombre": data.get("curso", {}).get("nombre", "Sin nombre"),
             "area": data.get("solicitante", {}).get("area", ""),
+            "solicitante_nombre": data.get("solicitante", {}).get("nombre", ""),
+            "solicitante_email": data.get("solicitante", {}).get("email", ""),
             "status": data.get("status", "pendiente"),
             "prioridad": data.get("prioridad", "media"),
             "asignado_a": data.get("asignado_a"),
@@ -843,7 +945,7 @@ def obtener_solicitud(req: https_fn.Request) -> https_fn.Response:
     return _response(data)
 
 
-@https_fn.on_request(cors=cors_options)
+@https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
 def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
     """PUT /solicitudes/{id} - Actualizar estado, asignación o prioridad."""
     if req.method not in ["PUT", "POST"]:
@@ -872,6 +974,10 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
     if not doc.exists:
         return _error("Solicitud not found", 404)
 
+    prev = doc.to_dict() or {}
+    curso_nombre = prev.get("curso", {}).get("nombre", "tu curso")
+    solicitante_email = prev.get("solicitante", {}).get("email", "")
+
     # Construir actualización
     update_data = {"updated_at": SERVER_TIMESTAMP}
 
@@ -886,6 +992,12 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
 
     doc_ref.update(update_data)
 
+    # Notificaciones (best-effort)
+    if update_req.status is not None and update_req.status.value != prev.get("status") and solicitante_email:
+        notifications.notify_cambio_estado(solicitante_email, solicitud_id, curso_nombre, update_req.status.value)
+    if update_req.asignado_a and update_req.asignado_a != prev.get("asignado_a"):
+        notifications.notify_asignacion(update_req.asignado_a, solicitud_id, curso_nombre)
+
     return _response({
         "id": solicitud_id,
         "updated": list(update_data.keys()),
@@ -893,7 +1005,7 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
     })
 
 
-@https_fn.on_request(cors=cors_options)
+@https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
 def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
     """POST /solicitudes/{id}/comentarios - Agregar un comentario a una solicitud."""
     if req.method != "POST":
@@ -940,6 +1052,17 @@ def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
         "updated_at": SERVER_TIMESTAMP,
     })
 
+    # Notificar a los mencionados (@) — best-effort
+    menciones = data.get("menciones") or []
+    if isinstance(menciones, list) and menciones:
+        sol = doc.to_dict() or {}
+        autor_nombre = autor_data.get("nombre") or autor_data.get("email") or "Alguien"
+        curso_nombre = sol.get("curso", {}).get("nombre", "una solicitud")
+        notifications.notify_mencion(
+            [str(m) for m in menciones if m],
+            autor_nombre, solicitud_id, curso_nombre, comentario_req.texto,
+        )
+
     return _response({
         "id": comentario_ref.id,
         "solicitud_id": solicitud_id,
@@ -957,11 +1080,17 @@ def mis_solicitudes(req: https_fn.Request) -> https_fn.Response:
     if not email:
         return _error("Missing email parameter")
 
-    # Query por email del solicitante
+    # Query por email del solicitante. Solo filtro por igualdad (índice de campo
+    # automático); el orden por created_at se hace en memoria para no depender de
+    # un índice compuesto (mismo criterio que listar_solicitudes).
     query = get_db().collection("solicitudes").where("solicitante.email", "==", email)
-    query = query.order_by("created_at", direction=firestore.Query.DESCENDING)
 
-    docs = query.stream()
+    docs = list(query.stream())
+    docs.sort(
+        key=lambda d: (d.to_dict().get("created_at").timestamp()
+                       if d.to_dict().get("created_at") else 0.0),
+        reverse=True,
+    )
 
     solicitudes = []
     for doc in docs:
@@ -992,6 +1121,116 @@ def mis_solicitudes(req: https_fn.Request) -> https_fn.Response:
         "solicitudes": solicitudes,
         "total": len(solicitudes),
         "email": email,
+    })
+
+
+# ============== USUARIOS ==============
+
+@https_fn.on_request(cors=cors_options)
+def listar_usuarios(req: https_fn.Request) -> https_fn.Response:
+    """GET /usuarios - Lista usuarios de Firebase Auth (para autocompletar @menciones)."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    get_db()  # asegura firebase_admin.initialize_app()
+
+    from firebase_admin import auth as fb_auth
+    usuarios = []
+    try:
+        for u in fb_auth.list_users().iterate_all():
+            if not u.email:
+                continue
+            usuarios.append({
+                "uid": u.uid,
+                "email": u.email,
+                "nombre": u.display_name or u.email.split("@")[0],
+                "photo_url": u.photo_url,
+            })
+    except Exception as e:
+        return _error(f"Error listando usuarios: {e}", 500)
+
+    return _response({"usuarios": usuarios, "total": len(usuarios)})
+
+
+# ============== SCORM SHELL (plantilla del paquete) ==============
+
+@https_fn.on_request(cors=cors_options)
+def scorm_shell(req: https_fn.Request) -> https_fn.Response:
+    """GET → {default, global}. PUT {scope:'global'|'course', shell_html, malla_id?} → guarda.
+    Permite editar la plantilla (envoltorio) del paquete SCORM: global o por curso."""
+    if req.method == "GET":
+        doc = get_db().collection("config").document("scorm").get()
+        global_shell = (doc.to_dict() or {}).get("shell_html", "") if doc.exists else ""
+        return _response({"default": DEFAULT_SHELL, "global": global_shell})
+
+    if req.method in ["PUT", "POST"]:
+        try:
+            data = req.get_json()
+            scope = data.get("scope")
+            shell_html = data.get("shell_html") or ""
+        except Exception as e:
+            return _error(f"Invalid request: {e}")
+
+        if scope == "global":
+            get_db().collection("config").document("scorm").set(
+                {"shell_html": shell_html, "updated_at": SERVER_TIMESTAMP}, merge=True
+            )
+            return _response({"ok": True, "scope": "global"})
+        if scope == "course":
+            malla_id = data.get("malla_id")
+            if not malla_id:
+                return _error("Falta 'malla_id'")
+            ref = get_db().collection("mallas").document(malla_id)
+            if not ref.get().exists:
+                return _error("Malla not found", 404)
+            ref.update({"scorm_shell_html": shell_html, "updated_at": SERVER_TIMESTAMP})
+            return _response({"ok": True, "scope": "course", "malla_id": malla_id})
+        return _error("scope inválido (global|course)")
+
+    return _error("Method not allowed", 405)
+
+
+# ============== SCORM ==============
+
+@https_fn.on_request(
+    cors=cors_options,
+    memory=options.MemoryOption.GB_1,
+    timeout_sec=540,
+)
+def empaquetar_scorm_endpoint(req: https_fn.Request) -> https_fn.Response:
+    """POST /scorm - Empaqueta el curso en un SCORM 1.2 (single-SCO) y lo sube a Storage.
+
+    Body: { malla_id, curso_nombre, passing_score, recursos: [{id, orden, titulo,
+            bloque, tipo, html?, video_url?, assets?}] }
+    Devuelve: { ok, download_url, size, recursos }
+    """
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        payload = req.get_json()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    if not payload or not payload.get("recursos"):
+        return _error("Falta 'recursos'")
+
+    try:
+        zip_bytes = empaquetar_scorm(payload)
+    except Exception as e:
+        return _error(f"Error empaquetando SCORM: {e}", 500)
+
+    malla_id = payload.get("malla_id") or "curso"
+    blob_path = f"scorm/{malla_id}/SCORM.zip"
+    blob = get_bucket().blob(blob_path)
+    blob.upload_from_string(zip_bytes, content_type="application/zip")
+    blob.make_public()
+
+    return _response({
+        "ok": True,
+        "download_url": blob.public_url,
+        "size": len(zip_bytes),
+        "recursos": len(payload.get("recursos", [])),
     })
 
 

@@ -12,11 +12,14 @@ const API_URLS = {
   obtener_solicitud: `${API_BASE}/obtener_solicitud`,
   actualizar_solicitud: `${API_BASE}/actualizar_solicitud`,
   agregar_comentario: `${API_BASE}/agregar_comentario`,
+  listar_usuarios: `${API_BASE}/listar_usuarios`,
   mis_solicitudes: `${API_BASE}/mis_solicitudes`,
   // Mallas
   crear_malla: "https://crear-malla-elrtzny3ba-uc.a.run.app",
   obtener_malla: "https://obtener-malla-elrtzny3ba-uc.a.run.app",
   iterar_malla: "https://iterar-malla-endpoint-elrtzny3ba-uc.a.run.app",
+  guardar_malla: `${API_BASE}/guardar_malla`,
+  guardar_guion: `${API_BASE}/guardar_guion`,
   generar_guiones: "https://generar-guiones-endpoint-elrtzny3ba-uc.a.run.app",
   // Audio/Video
   generar_audio: "https://generar-audio-endpoint-elrtzny3ba-uc.a.run.app",
@@ -24,7 +27,59 @@ const API_URLS = {
   obtener_job: "https://obtener-job-elrtzny3ba-uc.a.run.app",
   // Health
   health: "https://health-elrtzny3ba-uc.a.run.app",
+  // SCORM. En local apuntar al emulador con NEXT_PUBLIC_FUNCTIONS_EMULATOR
+  // (ej: http://127.0.0.1:5001/davivienda-elearning/us-central1)
+  empaquetar_scorm: `${process.env.NEXT_PUBLIC_FUNCTIONS_EMULATOR || API_BASE}/empaquetar_scorm_endpoint`,
 };
+
+export interface ScormRecurso {
+  id: number;
+  orden: number;
+  titulo: string;
+  bloque?: string;
+  tipo: string;
+  html?: string;
+  video_url?: string;
+  assets?: string[];
+}
+
+export async function obtenerScormShell(): Promise<{ default: string; global: string }> {
+  const res = await fetch(`${API_BASE}/scorm_shell`);
+  if (!res.ok) throw new Error("Error obteniendo shell SCORM");
+  return res.json();
+}
+
+export async function guardarScormShell(
+  scope: "global" | "course",
+  shellHtml: string,
+  mallaId?: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/scorm_shell`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scope, shell_html: shellHtml, malla_id: mallaId }),
+  });
+  if (!res.ok) throw new Error(`Error guardando shell: ${await res.text()}`);
+}
+
+export async function empaquetarScorm(payload: {
+  malla_id: string;
+  curso_nombre: string;
+  passing_score?: number;
+  recursos: ScormRecurso[];
+  shell_html?: string;
+}): Promise<{ ok: boolean; download_url: string; size: number; recursos: number }> {
+  const res = await fetch(API_URLS.empaquetar_scorm, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Error empaquetando SCORM: ${t}`);
+  }
+  return res.json();
+}
 
 // Modo Agente (Claude Agent SDK). Local por defecto; en prod, NEXT_PUBLIC_AGENT_URL
 // apunta al servicio Cloud Run.
@@ -96,6 +151,8 @@ export interface SolicitudListItem {
   id: string;
   curso_nombre: string;
   area: string;
+  solicitante_nombre?: string;
+  solicitante_email?: string;
   status: SolicitudStatus;
   prioridad: "alta" | "media" | "baja";
   asignado_a?: string;
@@ -163,14 +220,65 @@ export async function actualizarSolicitud(
 export async function agregarComentario(
   solicitudId: string,
   texto: string,
-  autor: { email: string; nombre: string; rol: string }
+  autor: { email: string; nombre: string; rol: string },
+  menciones?: string[]
 ): Promise<{ id: string; solicitud_id: string; message: string }> {
   const res = await fetch(`${API_URLS.agregar_comentario}?id=${solicitudId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ texto, autor }),
+    body: JSON.stringify({ texto, autor, menciones: menciones || [] }),
   });
   if (!res.ok) throw new Error("Error adding comment");
+  return res.json();
+}
+
+// Composición split (Opción C): avatar HeyGen + HTML branded → MP4 (vía agent-service).
+export async function composeSplitVideo(
+  avatarUrl: string,
+  contentHtml: string,
+  id: string
+): Promise<{ url: string }> {
+  const res = await fetch(`${AGENT_URL}/compose/split`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ avatarUrl, contentHtml, id }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Error componiendo video: ${t}`);
+  }
+  const d = await res.json();
+  return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
+}
+
+// Composición de video de slides (sin avatar): slide HTML + audio → MP4.
+export async function composeSlidesVideo(
+  audioUrl: string,
+  contentHtml: string,
+  id: string,
+  slideCount: number
+): Promise<{ url: string }> {
+  const res = await fetch(`${AGENT_URL}/compose/slides`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audioUrl, contentHtml, slideCount, id }),
+  });
+  if (!res.ok) throw new Error(`Error componiendo video: ${await res.text()}`);
+  const d = await res.json();
+  // Storage devuelve URL absoluta; el fallback local es relativo al agent-service.
+  return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
+}
+
+export interface Usuario {
+  uid: string;
+  email: string;
+  nombre: string;
+  photo_url?: string;
+}
+
+export async function listarUsuarios(): Promise<{ usuarios: Usuario[]; total: number }> {
+  const res = await fetch(API_URLS.listar_usuarios);
+  if (!res.ok) throw new Error("Error listando usuarios");
   return res.json();
 }
 
@@ -202,6 +310,8 @@ export interface Malla {
   created_at: string;
   updated_at: string;
   guiones?: Guion[];
+  solicitud?: { curso?: { nombre?: string }; solicitante?: { nombre?: string; area?: string } };
+  scorm_shell_html?: string;
 }
 
 // Malla functions
@@ -256,6 +366,37 @@ export async function iterarMalla(
   return res.json();
 }
 
+export async function guardarMalla(
+  mallaId: string,
+  malla: MallaItem[]
+): Promise<{ id: string; malla: MallaItem[]; duracion_total: number; message: string }> {
+  const res = await fetch(`${API_URLS.guardar_malla}?id=${mallaId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ malla }),
+  });
+  if (!res.ok) {
+    const error = await res.text();
+    throw new Error(`Error guardando malla: ${error}`);
+  }
+  return res.json();
+}
+
+// Persiste el contenido de un guión (HTML del agente, URLs de audio/video) para que
+// sobreviva al recargar. Merge en el servidor. Best-effort desde el caller.
+export async function guardarGuion(
+  mallaId: string,
+  guionId: number,
+  contenido: Record<string, unknown>
+): Promise<void> {
+  const res = await fetch(API_URLS.guardar_guion, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, contenido }),
+  });
+  if (!res.ok) throw new Error(`Error guardando guion: ${await res.text()}`);
+}
+
 // Guiones types
 export interface Guion {
   id: number;
@@ -269,6 +410,10 @@ export interface Guion {
     preguntas?: Array<{ pregunta: string; opciones: string[]; correcta: number }>;
     items?: Array<{ frente: string; reverso: string }>;
     duracion_estimada?: number;
+    // HTML editado por el Modo Agente. Si está presente, es la fuente de verdad
+    // visual del recurso (lo que se previsualiza y empaqueta); el resto del JSON
+    // (voiceover, etc.) sigue vivo para la generación de audio/video.
+    html?: string;
     [key: string]: unknown;
   };
 }
@@ -336,12 +481,15 @@ export async function generarVideo(
 }
 
 export async function obtenerJob(jobId: string): Promise<ContentJob> {
-  const res = await fetch(`${API_URLS.obtener_job}?job_id=${jobId}`);
+  // El endpoint espera ?id= (no job_id).
+  const res = await fetch(`${API_URLS.obtener_job}?id=${jobId}`);
   if (!res.ok) {
     const error = await res.text();
     throw new Error(`Error fetching job: ${error}`);
   }
-  return res.json();
+  const data = await res.json();
+  // El backend guarda la URL como result_url; el frontend usa output_url.
+  return { ...data, output_url: data.output_url ?? data.result_url };
 }
 
 // Status helpers

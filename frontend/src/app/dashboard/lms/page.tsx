@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { listarSolicitudes, SolicitudListItem } from "@/lib/api";
+import { listarSolicitudes, obtenerMalla, SolicitudListItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +16,14 @@ export default function LmsPage() {
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [cursoNombre, setCursoNombre] = useState("");
 
   useEffect(() => {
     if (mallaId) {
       setLoading(false);
+      obtenerMalla(mallaId)
+        .then((m) => { if (m.solicitud?.curso?.nombre) setCursoNombre(m.solicitud.curso.nombre); })
+        .catch(() => {});
     } else {
       loadEnProceso();
     }
@@ -113,8 +117,8 @@ export default function LmsPage() {
             Cursos
           </Button>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">Subir a LMS</h1>
-        <p className="text-gray-500">Territorium LMS - Davivienda</p>
+        <h1 className="text-2xl font-bold text-gray-900 truncate">{cursoNombre || "Subir a LMS"}</h1>
+        <p className="text-sm text-gray-500">Subir a LMS · Territorium - Davivienda</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

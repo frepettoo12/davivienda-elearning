@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   obtenerSolicitud,
   agregarComentario,
+  listarUsuarios,
   Solicitud,
   STATUS_CONFIG,
   PRIORIDAD_CONFIG,
   COURSE_TYPE_CONFIG,
+  type Usuario,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,10 +28,54 @@ export default function SolicitudDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [comentario, setComentario] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // @menciones
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [menciones, setMenciones] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const mentionStart = useRef(-1);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadSolicitud();
+    listarUsuarios().then(r => setUsuarios(r.usuarios)).catch(() => {});
   }, [id]);
+
+  const onComentarioChange = (value: string, caret: number) => {
+    setComentario(value);
+    const upto = value.slice(0, caret);
+    const at = upto.lastIndexOf("@");
+    if (at >= 0 && !/\s/.test(upto.slice(at + 1))) {
+      mentionStart.current = at;
+      setMentionQuery(upto.slice(at + 1).toLowerCase());
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const pickMencion = (u: Usuario) => {
+    const ta = textareaRef.current;
+    const caret = ta ? ta.selectionStart : comentario.length;
+    const before = comentario.slice(0, mentionStart.current);
+    const after = comentario.slice(caret);
+    const inserted = `@${u.nombre} `;
+    setComentario(before + inserted + after);
+    setMenciones(prev => prev.includes(u.email) ? prev : [...prev, u.email]);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      if (ta) {
+        const pos = (before + inserted).length;
+        ta.focus();
+        ta.setSelectionRange(pos, pos);
+      }
+    });
+  };
+
+  const mentionMatches = mentionQuery !== null
+    ? usuarios.filter(u =>
+        u.nombre.toLowerCase().includes(mentionQuery) ||
+        u.email.toLowerCase().includes(mentionQuery)
+      ).slice(0, 6)
+    : [];
 
   const loadSolicitud = async () => {
     setLoading(true);
@@ -48,12 +94,17 @@ export default function SolicitudDetailPage() {
     if (!solicitud || !comentario.trim()) return;
     setSubmitting(true);
     try {
+      const activas = menciones.filter(email => {
+        const u = usuarios.find(x => x.email === email);
+        return u && comentario.includes(`@${u.nombre}`);
+      });
       await agregarComentario(solicitud.id, comentario, {
         email: solicitud.solicitante.email,
         nombre: solicitud.solicitante.nombre,
         rol: "solicitante",
-      });
+      }, activas);
       setComentario("");
+      setMenciones([]);
       loadSolicitud();
     } catch (err) {
       console.error(err);
@@ -225,12 +276,39 @@ export default function SolicitudDetailPage() {
                 <Separator />
 
                 <div className="space-y-3">
-                  <Textarea
-                    placeholder="Escribe un mensaje..."
-                    value={comentario}
-                    onChange={(e) => setComentario(e.target.value)}
-                    rows={3}
-                  />
+                  <div className="relative">
+                    <Textarea
+                      ref={textareaRef}
+                      placeholder="Escribe un mensaje… escribí @ para mencionar a alguien"
+                      value={comentario}
+                      onChange={(e) => onComentarioChange(e.target.value, e.target.selectionStart)}
+                      onKeyDown={(e) => { if (e.key === "Escape") setMentionQuery(null); }}
+                      rows={3}
+                    />
+                    {mentionMatches.length > 0 && (
+                      <div className="absolute left-0 right-0 z-10 mt-1 max-h-52 overflow-auto rounded-lg border bg-white shadow-lg">
+                        {mentionMatches.map((u) => (
+                          <button
+                            key={u.uid}
+                            type="button"
+                            onClick={() => pickMencion(u)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50"
+                          >
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">
+                              {u.nombre.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="leading-tight">
+                              <span className="block text-sm text-gray-900">{u.nombre}</span>
+                              <span className="block text-xs text-gray-400">{u.email}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {menciones.length > 0 && (
+                    <p className="text-xs text-gray-500">Notificará a: {menciones.join(", ")}</p>
+                  )}
                   <Button
                     onClick={handleAddComment}
                     disabled={!comentario.trim() || submitting}

@@ -241,6 +241,7 @@ export default function SolicitudesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Curso</TableHead>
+                  <TableHead>Solicitante</TableHead>
                   <TableHead>Área</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Prioridad</TableHead>
@@ -256,6 +257,18 @@ export default function SolicitudesPage() {
                     onClick={() => router.push(`/dashboard/solicitudes/${solicitud.id}`)}
                   >
                     <TableCell className="font-medium">{solicitud.curso_nombre}</TableCell>
+                    <TableCell>
+                      {solicitud.solicitante_nombre || solicitud.solicitante_email ? (
+                        <div className="leading-tight">
+                          <p className="text-sm text-gray-900">{solicitud.solicitante_nombre || "—"}</p>
+                          {solicitud.solicitante_email && (
+                            <p className="text-xs text-gray-400">{solicitud.solicitante_email}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>{solicitud.area}</TableCell>
                     <TableCell>
                       <Badge className={STATUS_CONFIG[solicitud.status]?.color || "bg-gray-100"}>

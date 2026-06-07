@@ -31,6 +31,7 @@ export default function DisenoPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
+  const [cursoNombre, setCursoNombre] = useState("");
 
   useEffect(() => {
     if (mallaId) {
@@ -59,6 +60,7 @@ export default function DisenoPage() {
     try {
       const malla = await obtenerMalla(mallaId);
       setMallaItems(malla.malla || []);
+      if (malla.solicitud?.curso?.nombre) setCursoNombre(malla.solicitud.curso.nombre);
       // Check if guiones already exist in the malla data
       if (malla.guiones) {
         setGuiones(malla.guiones);
@@ -165,9 +167,9 @@ export default function DisenoPage() {
           </Button>
         </div>
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Diseño de Contenido</h1>
-            <p className="text-gray-500">{mallaItems.length} recursos para diseñar</p>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 truncate">{cursoNombre || "Diseño Instruccional"}</h1>
+            <p className="text-sm text-gray-500">Diseño Instruccional · {mallaItems.length} recursos para diseñar</p>
           </div>
           {guiones.length === 0 && (
             <Button
@@ -284,7 +286,6 @@ function ResourceDetail({ item, guion }: { item: MallaItem; guion?: Guion }) {
           <TabsList>
             <TabsTrigger value="info">Información</TabsTrigger>
             <TabsTrigger value="guion" disabled={!guion}>Guion</TabsTrigger>
-            <TabsTrigger value="preview" disabled={!guion}>Preview</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info" className="space-y-4 mt-4">
@@ -314,16 +315,6 @@ function ResourceDetail({ item, guion }: { item: MallaItem; guion?: Guion }) {
             ) : (
               <p className="text-gray-500 py-8 text-center">
                 Genera los guiones para ver el contenido
-              </p>
-            )}
-          </TabsContent>
-
-          <TabsContent value="preview" className="mt-4">
-            {guion ? (
-              <SlidePreview guion={guion} tipo={item.tipo_recurso} />
-            ) : (
-              <p className="text-gray-500 py-8 text-center">
-                Genera los guiones para ver el preview
               </p>
             )}
           </TabsContent>

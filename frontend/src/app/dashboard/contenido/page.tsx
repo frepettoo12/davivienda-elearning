@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   obtenerMalla,
@@ -8,13 +8,16 @@ import {
   generarAudio,
   generarVideo,
   obtenerJob,
+  guardarGuion,
   MallaItem,
   Guion,
   SolicitudListItem,
 } from "@/lib/api";
-import { openResourceInNewTab } from "@/lib/resource-renderer";
+import { AGENT_URL, composeSplitVideo, composeSlidesVideo } from "@/lib/api";
+import { useAgentJobs, type AgentImage } from "@/contexts/AgentJobsContext";
+import { openResourceInNewTab, generateResourceHTML } from "@/lib/resource-renderer";
 import { RenderComponents, isComponentContent, type ResourceComponent } from "@/lib/component-renderer";
-import { openComponentsInNewTab } from "@/lib/component-html-generator";
+import { openComponentsInNewTab, generateFullHTML, type ComponentContentWithConfig } from "@/lib/component-html-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,8 +39,6 @@ const TIPO_RECURSO_ICONS: Record<string, string> = {
 const NEEDS_GENERATION = ["Video avatar", "Video"];
 
 // Resources that have background music in final SCORM
-const HAS_MUSIC = ["Infografía", "Comparador", "Interactivo", "Flashcards"];
-const HAS_QUIZ_MUSIC = ["Quiz"];
 
 type VisualFormatOption = {
   id: string;
@@ -164,6 +165,7 @@ export default function ContenidoPage() {
 
   const [mallaItems, setMallaItems] = useState<MallaItem[]>([]);
   const [guiones, setGuiones] = useState<Guion[]>([]);
+  const [cursoNombre, setCursoNombre] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
@@ -202,6 +204,27 @@ export default function ContenidoPage() {
       const malla = await obtenerMalla(mallaId);
       setMallaItems(malla.malla || []);
       setGuiones(malla.guiones || []);
+      if (malla.solicitud?.curso?.nombre) setCursoNombre(malla.solicitud.curso.nombre);
+      // Restaurar audio/video ya generados (persistidos en el guión) para que
+      // sigan visibles tras recargar.
+      const restored: Record<number, ResourceGeneration> = {};
+      const toResume: Array<{ jobId: string; resourceId: number }> = [];
+      for (const g of malla.guiones || []) {
+        const c = g.contenido as { audio_url?: string; video_url?: string; video_job_id?: string };
+        if (c.audio_url || c.video_url) {
+          restored[g.id] = {
+            ...(c.audio_url ? { audioStatus: "completed", audioUrl: c.audio_url } : {}),
+            ...(c.video_url ? { videoStatus: "completed", videoUrl: c.video_url } : {}),
+          };
+        }
+        // Video iniciado pero sin URL final → reanudar polling (HeyGen pudo terminar mientras no mirabas).
+        if (c.video_job_id && !c.video_url) {
+          restored[g.id] = { ...(restored[g.id] || {}), videoStatus: "processing", videoJobId: c.video_job_id };
+          toResume.push({ jobId: c.video_job_id, resourceId: g.id });
+        }
+      }
+      if (Object.keys(restored).length) setGenerations(restored);
+      toResume.forEach(({ jobId, resourceId }) => pollJob(jobId, resourceId, "video"));
     } catch (err) {
       setError("Error al cargar la malla");
       console.error(err);
@@ -234,13 +257,20 @@ export default function ContenidoPage() {
           }
         }));
 
-        if (job.status === "completed" && job.output_url && onComplete) {
-          onComplete(job.output_url);
+        if (job.status === "completed" && job.output_url) {
+          // Persistir la URL en el guión para que sobreviva al recargar.
+          if (mallaId) {
+            const field = type === "audio" ? "audio_url" : "video_url";
+            void guardarGuion(mallaId, resourceId, { [field]: job.output_url }).catch(() => {});
+          }
+          if (onComplete) onComplete(job.output_url);
         } else if (job.status === "pending" || job.status === "processing") {
           setTimeout(poll, 3000);
         }
       } catch (err) {
-        console.error("Error polling job:", err);
+        // Reintentar ante errores transitorios (no matar el polling).
+        console.error("Error polling job (reintenta):", err);
+        setTimeout(poll, 5000);
       }
     };
     poll();
@@ -296,6 +326,8 @@ export default function ContenidoPage() {
           videoStatus: "pending",
         }
       }));
+      // Persistir el job_id para poder reanudar el polling tras recargar/navegar.
+      void guardarGuion(mallaId, item.id, { video_job_id: result.job_id }).catch(() => {});
       pollJob(result.job_id, item.id, "video");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al generar video");
@@ -394,9 +426,9 @@ export default function ContenidoPage() {
           </Button>
         </div>
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Generación de Contenido</h1>
-            <p className="text-gray-500">{mallaItems.length} recursos en la malla</p>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 truncate">{cursoNombre || "Generación de Contenido"}</h1>
+            <p className="text-sm text-gray-500">Generación de Contenido · {mallaItems.length} recursos</p>
           </div>
           <Button onClick={() => router.push(`/dashboard/scorm?malla=${mallaId}`)}>
             Continuar a SCORM
@@ -430,8 +462,6 @@ export default function ContenidoPage() {
             const gen = generations[item.id];
             const isSelected = selectedItem === item.id;
             const needsGen = needsGeneration(item.tipo_recurso);
-            const hasMusic = HAS_MUSIC.includes(item.tipo_recurso);
-            const hasQuizMusic = HAS_QUIZ_MUSIC.includes(item.tipo_recurso);
 
             // Determine status
             let statusBadge = null;
@@ -464,10 +494,6 @@ export default function ContenidoPage() {
                         {statusBadge}
                       </div>
                       <p className="text-sm text-gray-500">{item.tipo_recurso}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
-                        {hasMusic && <span>🎵 Música ambiente</span>}
-                        {hasQuizMusic && <span>🎵 Música quiz</span>}
-                      </div>
                     </div>
                   </div>
                 </CardContent>
@@ -501,9 +527,10 @@ export default function ContenidoPage() {
                     {needsGeneration(selectedMallaItem.tipo_recurso) && (
                       <TabsTrigger value="generar">Generar</TabsTrigger>
                     )}
-                    <TabsTrigger value="preview">Preview</TabsTrigger>
-                    {selectedGen?.audioUrl && (
-                      <TabsTrigger value="resultado">Resultado</TabsTrigger>
+                    {/* El editor de HTML solo aplica a recursos no-video (los de video se
+                        editan en Generar → panel del split). */}
+                    {!needsGeneration(selectedMallaItem.tipo_recurso) && (
+                      <TabsTrigger value="preview">Preview + Editor IA</TabsTrigger>
                     )}
                   </TabsList>
 
@@ -512,8 +539,14 @@ export default function ContenidoPage() {
                     <div className="mt-4 mb-2">
                       <Button
                         onClick={() => {
-                          // Modo componentes - usar generador de componentes
-                          if (isComponentContent(selectedGuion.contenido)) {
+                          // Si el agente editó el HTML, esa es la realidad → abrir ESE,
+                          // no regenerar desde el JSON (que ignora los cambios del editor).
+                          const editedHtml = selectedGuion.contenido.html;
+                          if (typeof editedHtml === "string" && editedHtml.trim()) {
+                            const url = URL.createObjectURL(new Blob([editedHtml], { type: "text/html" }));
+                            window.open(url, "_blank");
+                          } else if (isComponentContent(selectedGuion.contenido)) {
+                            // Modo componentes - usar generador de componentes
                             openComponentsInNewTab(selectedGuion.contenido, selectedMallaItem.recurso);
                           } else {
                             // Modo legacy - usar templates
@@ -542,6 +575,7 @@ export default function ContenidoPage() {
                         item={selectedMallaItem}
                         guion={selectedGuion}
                         gen={selectedGen}
+                        mallaId={mallaId || ""}
                         generating={generatingId === selectedMallaItem.id}
                         onGenerateAudio={() => handleGenerateAudio(selectedMallaItem)}
                         onGenerateVideo={() => handleGenerateVideo(selectedMallaItem)}
@@ -549,56 +583,26 @@ export default function ContenidoPage() {
                     </TabsContent>
                   )}
 
-                  {/* Preview + Iteration tab */}
+                  {/* Preview + Editor IA (Modo Agente · Claude Agent SDK) */}
                   <TabsContent value="preview" className="mt-4">
-                    <div className="grid gap-4 xl:grid-cols-5">
-                      <div className="xl:col-span-3">
-                        <ResourcePreview
-                          key={`preview-${selectedGuion.id}-${previewVersions[selectedGuion.id] || 0}`}
-                          item={selectedMallaItem}
-                          guion={selectedGuion}
-                        />
-                      </div>
-                      <div className="xl:col-span-2">
-                        <div className="rounded-lg border bg-white p-3">
-                          <p className="mb-3 text-sm font-semibold text-gray-700">Iterar con IA</p>
-                          <IterationChat
-                            guion={selectedGuion}
-                            tipo={selectedMallaItem.tipo_recurso}
-                            mallaId={mallaId || ""}
-                            history={chatHistories[selectedItem!] || []}
-                            onHistoryUpdate={(newHistory) => {
-                              setChatHistories(prev => ({
-                                ...prev,
-                                [selectedItem!]: newHistory
-                              }));
-                            }}
-                            onUpdate={(newGuion, persisted = true) => {
-                              setGuiones(prev => prev.map(g => g.id === newGuion.id ? newGuion : g));
-                              setPreviewVersions(prev => ({
-                                ...prev,
-                                [newGuion.id]: (prev[newGuion.id] || 0) + 1,
-                              }));
-                              setActiveTabByResource(prev => ({
-                                ...prev,
-                                [selectedMallaItem.id]: "preview",
-                              }));
-                              if (persisted) {
-                                void loadMalla();
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <ResourceAgentEditor
+                      key={`agent-${selectedGuion.id}`}
+                      item={selectedMallaItem}
+                      guion={selectedGuion}
+                      mallaId={mallaId || ""}
+                      onUpdate={(newGuion) => {
+                        setGuiones(prev => prev.map(g => g.id === newGuion.id ? newGuion : g));
+                        setPreviewVersions(prev => ({
+                          ...prev,
+                          [newGuion.id]: (prev[newGuion.id] || 0) + 1,
+                        }));
+                        // Persistir el HTML editado para que sobreviva al recargar.
+                        if (mallaId && typeof newGuion.contenido.html === "string") {
+                          void guardarGuion(mallaId, newGuion.id, { html: newGuion.contenido.html }).catch(() => {});
+                        }
+                      }}
+                    />
                   </TabsContent>
-
-                  {/* Result tab */}
-                  {selectedGen?.audioUrl && (
-                    <TabsContent value="resultado" className="mt-4">
-                      <ResultPanel gen={selectedGen} tipo={selectedMallaItem.tipo_recurso} />
-                    </TabsContent>
-                  )}
 
                 </Tabs>
               </CardContent>
@@ -613,6 +617,294 @@ export default function ContenidoPage() {
                 <p>Selecciona un recurso para ver detalles</p>
               </CardContent>
             </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editor IA · Modo Agente (Claude Agent SDK). Reemplaza al chat gpt-4o single-shot.
+// El agente edita el HTML real del recurso (semilla generada desde el guión JSON)
+// en un workspace aislado del agent-service: edita → renderiza headless → mira el
+// resultado → se autocorrige. Preview en vivo + persistencia del HTML en el guión.
+// ─────────────────────────────────────────────────────────────────────────────
+type AgentEv = { id: number; cls: string; icon: string; text: string };
+
+const AGENT_MODELS = [
+  { value: "claude-haiku-4-5", label: "Haiku 4.5 (económico)" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (recomendado)" },
+  { value: "claude-opus-4-8", label: "Opus 4.8 (máxima calidad)" },
+];
+
+// Biblioteca de música libre con link directo (verificado). Créditos:
+// Kevin MacLeod (incompetech.com) — CC BY 4.0 · SoundHelix (T. Schürger) — uso libre.
+const MUSIC_LIBRARY = [
+  { nombre: "Inspired", mood: "Inspirador / corporativo", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Inspired.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "Enchanted Valley", mood: "Ambiente tranquilo", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Enchanted%20Valley.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "Local Forecast – Elevator", mood: "Suave / de fondo", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Local%20Forecast%20-%20Elevator.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "Wallpaper", mood: "Sutil / minimal", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Wallpaper.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "Sincerely", mood: "Emotivo / piano", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Sincerely.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "Carefree", mood: "Alegre / liviano", url: "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Carefree.mp3", credito: "Kevin MacLeod · CC BY 4.0" },
+  { nombre: "SoundHelix 1", mood: "Dinámico / electrónico", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", credito: "SoundHelix · uso libre" },
+  { nombre: "SoundHelix 8", mood: "Energético", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3", credito: "SoundHelix · uso libre" },
+];
+
+function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
+  item: MallaItem;
+  guion: Guion;
+  mallaId: string;
+  onUpdate: (guion: Guion) => void;
+}) {
+  const sessionKey = `${mallaId || "m"}_${guion.id}`;
+  // Estado de la corrida vive en el contexto global → sobrevive cambiar de recurso/página.
+  const { getJob, start, getDraft, setDraft } = useAgentJobs();
+  const job = getJob(sessionKey);
+  const instruction = getDraft(sessionKey);
+  const events = job?.events ?? [];
+  const running = job?.running ?? false;
+  const status = job?.status ?? "listo";
+  const lastCost = job?.lastCost ?? null;
+
+  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewKey, setPreviewKey] = useState(0);
+  // HTML editado existente, o un job en curso/terminado → mostrar workspace en vivo.
+  const [hasAgentHtml, setHasAgentHtml] = useState(() => Boolean(guion.contenido.html) || Boolean(job));
+  const [images, setImages] = useState<AgentImage[]>([]);
+  // Mini-form "Agregar audio"
+  const [showAudio, setShowAudio] = useState(false);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [audioLoop, setAudioLoop] = useState(true);
+  const logRef = useRef<HTMLDivElement>(null);
+  const appliedVersion = useRef(0);
+
+  // HTML semilla: lo ya editado por el agente, o el render del guión JSON.
+  const seedHtml = useMemo(() => {
+    if (guion.contenido.html) return guion.contenido.html;
+    if (isComponentContent(guion.contenido)) {
+      return generateFullHTML(guion.contenido as unknown as ComponentContentWithConfig, item.recurso);
+    }
+    return generateResourceHTML(guion, item.tipo_recurso);
+  }, [guion, item]);
+
+  const previewSrc = `${AGENT_URL}/ws/${sessionKey}/index.html?t=${previewKey}`;
+
+  // Cuando el agente termina (aunque hayas navegado), aplicar el HTML resultante.
+  useEffect(() => {
+    if (job?.html && job.htmlVersion > appliedVersion.current) {
+      appliedVersion.current = job.htmlVersion;
+      setHasAgentHtml(true);
+      setPreviewKey((k) => k + 1);
+      onUpdate({ ...guion, contenido: { ...guion.contenido, html: job.html } });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.htmlVersion]);
+
+  // Autoscroll del log
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [events.length]);
+
+  const run = (override?: string) => {
+    start(sessionKey, { instruction: override ?? instruction, model, seedHtml, images });
+    setImages([]);
+  };
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-5">
+      {/* Preview en vivo */}
+      <div className="xl:col-span-3">
+        <div className="rounded-lg border bg-white">
+          <div className="flex items-center gap-2 border-b px-3 py-2 text-sm">
+            <span className="text-gray-500">Preview</span>
+            {hasAgentHtml && (
+              <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                HTML editado por IA
+              </span>
+            )}
+            <div className="ml-auto flex gap-1.5">
+              <button
+                onClick={() => setDevice("desktop")}
+                className={`rounded px-2.5 py-1 text-xs ${device === "desktop" ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"}`}
+              >
+                🖥 Desktop
+              </button>
+              <button
+                onClick={() => setDevice("mobile")}
+                className={`rounded px-2.5 py-1 text-xs ${device === "mobile" ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"}`}
+              >
+                📱 Mobile
+              </button>
+              {hasAgentHtml && (
+                <button
+                  onClick={() => setPreviewKey((k) => k + 1)}
+                  className="rounded bg-gray-100 px-2.5 py-1 text-xs text-gray-700"
+                >
+                  ↻
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-center overflow-auto bg-gray-200 p-3" style={{ minHeight: 420, maxHeight: 620 }}>
+            {hasAgentHtml ? (
+              <iframe
+                key={previewKey}
+                src={previewSrc}
+                className="bg-white shadow"
+                style={{ width: device === "mobile" ? 390 : "100%", height: 600, transition: "width .2s" }}
+              />
+            ) : (
+              // Mismo HTML standalone que abre "Ver Recurso Final" (no el render React),
+              // para que el preview refleje la realidad del recurso final.
+              <iframe
+                key={`seed-${previewKey}`}
+                srcDoc={seedHtml}
+                className="bg-white shadow"
+                style={{ width: device === "mobile" ? 390 : "100%", height: 600, transition: "width .2s" }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Panel del agente */}
+      <div className="xl:col-span-2">
+        <div className="flex flex-col rounded-lg border bg-white" style={{ maxHeight: 620 }}>
+          <div className="border-b p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <p className="text-sm font-semibold text-gray-700">🤖 Editor IA · Modo Agente</p>
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                Claude Agent SDK
+              </span>
+              <span className="ml-auto text-xs text-gray-400">{status}</span>
+            </div>
+            <textarea
+              value={instruction}
+              onChange={(e) => setDraft(sessionKey, e.target.value)}
+              placeholder="Ej: Hacé el comparador más visual con tarjetas, fondo degradado y los colores de Davivienda. Arreglá el overflow en mobile."
+              className="h-24 w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm focus:border-red-500 focus:outline-none"
+            />
+            <div className="mt-2 space-y-2">
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 p-2 text-xs"
+              >
+                {AGENT_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAudio((s) => !s)}
+                  disabled={running}
+                  className={`flex items-center gap-1 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium ${showAudio ? "border-red-500 bg-red-50 text-red-700" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  title="Agregar música / audio al recurso"
+                >
+                  🎵 Agregar audio
+                </button>
+                <ImageAttach images={images} setImages={setImages} />
+                <Button size="sm" onClick={() => run()} disabled={running} className="ml-auto">
+                  {running ? "Trabajando…" : "Ejecutar agente"}
+                </Button>
+              </div>
+            </div>
+
+            {showAudio && (
+              <div className="mt-2 space-y-2 rounded-lg border border-red-100 bg-red-50/40 p-3">
+                <p className="text-xs font-semibold text-gray-700">🎵 Insertar audio con IA</p>
+                <select
+                  value={MUSIC_LIBRARY.some((t) => t.url === audioUrl) ? audioUrl : ""}
+                  onChange={(e) => {
+                    const t = MUSIC_LIBRARY.find((x) => x.url === e.target.value);
+                    if (t) setAudioUrl(t.url);
+                  }}
+                  className="w-full rounded border border-gray-300 p-1.5 text-xs focus:border-red-500 focus:outline-none"
+                >
+                  <option value="">🎚️ Elegir de la biblioteca…</option>
+                  {MUSIC_LIBRARY.map((t) => (
+                    <option key={t.url} value={t.url}>{t.nombre} — {t.mood}</option>
+                  ))}
+                </select>
+                <input
+                  value={audioUrl}
+                  onChange={(e) => setAudioUrl(e.target.value)}
+                  placeholder="…o pegá una URL (https://…/pista.mp3)"
+                  className="w-full rounded border border-gray-300 p-1.5 text-xs focus:border-red-500 focus:outline-none"
+                />
+                {audioUrl.trim() && (
+                  <div className="space-y-0.5">
+                    <audio controls src={audioUrl} className="w-full" style={{ height: 32 }} />
+                    {MUSIC_LIBRARY.find((t) => t.url === audioUrl)?.credito && (
+                      <p className="text-[10px] text-gray-400">
+                        Crédito: {MUSIC_LIBRARY.find((t) => t.url === audioUrl)?.credito}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  <input type="checkbox" checked={audioLoop} onChange={(e) => setAudioLoop(e.target.checked)} />
+                  Repetir en bucle (música de fondo discreta, control flotante)
+                </label>
+                <Button
+                  size="sm"
+                  disabled={running || !audioUrl.trim()}
+                  onClick={() => {
+                    const credito = MUSIC_LIBRARY.find((t) => t.url === audioUrl)?.credito;
+                    const instr =
+                      `Agregá MÚSICA DE FONDO discreta al recurso (NO un reproductor grande que ocupe el contenido). ` +
+                      `Implementala como un control flotante CHICO fijo abajo a la derecha (position:fixed; bottom/right): ` +
+                      `un botón con ícono 🔊/🔇 que prende/apaga la música. ` +
+                      `Fuente exacta del audio (no la cambies): ${audioUrl.trim()} . ` +
+                      `Usá un <audio${audioLoop ? " loop" : ""}> oculto, volumen ~0.3. ` +
+                      `Intentá autoplay al cargar y, si el browser lo bloquea, que arranque al primer click del botón. ` +
+                      `NO debe tapar ni desplazar el texto del recurso. ` +
+                      (credito ? `Incluí el crédito "Música: ${credito}" en letra muy chica junto al control. ` : "") +
+                      `No toques el resto del contenido.`;
+                    setShowAudio(false);
+                    void run(instr);
+                  }}
+                  className="w-full"
+                >
+                  Insertar con IA
+                </Button>
+              </div>
+            )}
+          </div>
+          <div ref={logRef} className="min-h-0 flex-1 overflow-y-auto p-3 text-sm" style={{ minHeight: 160 }}>
+            {events.length === 0 ? (
+              <p className="text-xs text-gray-400">
+                El agente edita el HTML real del recurso: lee, edita, renderiza headless, mira el
+                resultado y se autocorrige. El progreso aparece acá en vivo.
+              </p>
+            ) : (
+              events.map((e) => (
+                <div key={e.id} className="flex gap-2 border-b border-gray-100 py-1.5">
+                  <span className="w-4 shrink-0 text-center">{e.icon}</span>
+                  <span
+                    className={
+                      e.cls === "tool"
+                        ? "font-mono text-xs text-gray-600"
+                        : e.cls === "result"
+                        ? "font-semibold text-green-700"
+                        : e.cls === "error"
+                        ? "font-semibold text-red-600"
+                        : "text-gray-900"
+                    }
+                  >
+                    {e.text}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          {lastCost !== null && (
+            <div className="border-t px-3 py-1.5 text-[11px] text-gray-400">
+              Costo estimado última edición: ${lastCost.toFixed(4)} · workspace <code>{sessionKey}</code>
+            </div>
           )}
         </div>
       </div>
@@ -678,17 +970,287 @@ function GuionPreview({ guion, tipo }: { guion: Guion; tipo: string }) {
   );
 }
 
+// Panel de contenido (lado derecho del video split) generado desde el guión.
+// Branded Davivienda. Para v1: título + bullets (puntos_clave o títulos de slides).
+function buildAvatarPanelHtml(guion: Guion, titulo: string): string {
+  const c = guion.contenido;
+  let bullets: string[] = [];
+  if (Array.isArray(c.puntos_clave) && c.puntos_clave.length) {
+    bullets = c.puntos_clave as string[];
+  } else if (Array.isArray(c.slides) && c.slides.length) {
+    bullets = (c.slides as Array<{ titulo?: string }>).map((s) => s.titulo || "").filter(Boolean);
+  }
+  bullets = bullets.slice(0, 5);
+  const esc = (s: string) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const items = bullets.map((b) => `<li>${esc(b)}</li>`).join("");
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+    *{margin:0;box-sizing:border-box}
+    body{width:1248px;height:1080px;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 55%,#0f3460 100%);
+      font-family:'Montserrat','Segoe UI',sans-serif;color:#fff;display:flex;flex-direction:column;justify-content:center;padding:90px 80px}
+    .bar{width:90px;height:8px;background:#DA291C;border-radius:4px;margin-bottom:34px}
+    h1{font-size:62px;line-height:1.1;font-weight:800;margin-bottom:40px}
+    ul{list-style:none;padding:0}
+    li{font-size:36px;line-height:1.5;margin:18px 0;padding-left:46px;position:relative}
+    li::before{content:'';position:absolute;left:0;top:14px;width:22px;height:22px;border-radius:50%;
+      background:#FFD700;box-shadow:0 0 0 6px rgba(255,215,0,0.18)}
+    .logo{position:absolute;bottom:60px;font-size:24px;font-weight:700;color:rgba(255,255,255,0.6)}
+  </style></head><body>
+    <div class="bar"></div>
+    <h1>${esc(titulo)}</h1>
+    ${items ? `<ul>${items}</ul>` : ""}
+    <div class="logo">Davivienda</div>
+  </body></html>`;
+}
+
+// Deck de slides (N secciones 1920x1080 apiladas) para el video. Branded Davivienda.
+// Cada <section class="slide"> es una slide; el agent-service las recorta y arma el video.
+function buildDeckHtml(guion: Guion, titulo: string): string {
+  const c = guion.contenido;
+  const esc = (s: string) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  type S = { titulo?: string; bullets?: string[]; puntos?: string[] };
+  let slides: S[] = Array.isArray(c.slides) && c.slides.length ? (c.slides as S[]) : [];
+  if (!slides.length) {
+    // Fallback: una sola slide con los puntos clave / título.
+    slides = [{ titulo, bullets: (Array.isArray(c.puntos_clave) ? c.puntos_clave as string[] : []) }];
+  }
+  const sections = slides.map((s, i) => {
+    const bullets = (s.bullets || s.puntos || []).slice(0, 6);
+    const items = bullets.map((b) => `<li>${esc(b)}</li>`).join("");
+    return `<section class="slide">
+      <div class="bar"></div>
+      <h1>${esc(s.titulo || titulo)}</h1>
+      ${items ? `<ul>${items}</ul>` : ""}
+      <div class="num">${i + 1} / ${slides.length}</div>
+      <div class="logo">Davivienda</div>
+    </section>`;
+  }).join("");
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+    *{margin:0;box-sizing:border-box}
+    body{width:1920px;font-family:'Montserrat','Segoe UI',sans-serif}
+    .slide{width:1920px;height:1080px;position:relative;color:#fff;padding:110px 130px;
+      display:flex;flex-direction:column;justify-content:center;
+      background:linear-gradient(135deg,#1a1a2e 0%,#16213e 55%,#0f3460 100%)}
+    .bar{width:110px;height:9px;background:#DA291C;border-radius:5px;margin-bottom:40px}
+    h1{font-size:84px;line-height:1.08;font-weight:800;margin-bottom:54px;max-width:1500px}
+    ul{list-style:none;padding:0}
+    li{font-size:44px;line-height:1.5;margin:22px 0;padding-left:58px;position:relative;max-width:1550px}
+    li::before{content:'';position:absolute;left:0;top:18px;width:26px;height:26px;border-radius:50%;background:#FFD700;box-shadow:0 0 0 7px rgba(255,215,0,0.18)}
+    .num{position:absolute;top:70px;right:130px;font-size:28px;font-weight:700;color:rgba(255,255,255,0.4)}
+    .logo{position:absolute;bottom:70px;right:130px;font-size:30px;font-weight:700;color:rgba(255,255,255,0.55)}
+  </style></head><body>${sections}</body></html>`;
+}
+
+// Adjuntar imágenes para el agente (se suben al workspace; el agente las usa/ve).
+function ImageAttach({ images, setImages }: {
+  images: AgentImage[];
+  setImages: (fn: (prev: AgentImage[]) => AgentImage[]) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const onFiles = async (files: FileList | null) => {
+    if (!files) return;
+    for (const f of Array.from(files).slice(0, 6)) {
+      if (!f.type.startsWith("image/") || f.size > 6 * 1024 * 1024) continue;
+      const dataUrl = await new Promise<string>((res) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result));
+        r.readAsDataURL(f);
+      });
+      setImages((prev) => (prev.length >= 6 ? prev : [...prev, { name: f.name, dataUrl }]));
+    }
+    if (ref.current) ref.current.value = "";
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        className="flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+        title="Adjuntar imágenes (logo, fotos…)"
+      >
+        📎 Imagen
+      </button>
+      <input ref={ref} type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
+      <div className="flex flex-wrap gap-1.5">
+        {images.map((img, i) => (
+          <div key={i} className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={img.dataUrl} alt={img.name} className="h-9 w-9 rounded border object-cover" />
+            <button
+              type="button"
+              onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-800 text-[10px] text-white"
+              title="Quitar"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Editor IA del panel del video split (Claude Agent SDK). Edita el HTML del slide
+// del lado derecho; al terminar devuelve el HTML por onHtmlChange.
+function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW = 1248, contentH = 1080 }: {
+  sessionKey: string;
+  seedHtml: string;
+  onHtmlChange: (html: string) => void;
+  avatarUrl?: string;
+  contentW?: number;
+  contentH?: number;
+}) {
+  const { getJob, start, getDraft, setDraft } = useAgentJobs();
+  const job = getJob(sessionKey);
+  const instruction = getDraft(sessionKey);
+  const running = job?.running ?? false;
+  const events = job?.events ?? [];
+  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [previewKey, setPreviewKey] = useState(0);
+  // Si ya hay un job para este recurso (corriendo o terminado), mostrar el workspace
+  // en vivo (sobrevive cambiar de pestaña/recurso).
+  const [hasEdited, setHasEdited] = useState(() => Boolean(job));
+  const [images, setImages] = useState<AgentImage[]>([]);
+  const applied = useRef(0);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (job?.html && job.htmlVersion > applied.current) {
+      applied.current = job.htmlVersion;
+      setHasEdited(true);
+      setPreviewKey((k) => k + 1);
+      onHtmlChange(job.html);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.htmlVersion]);
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [events.length]);
+
+  const previewSrc = `${AGENT_URL}/ws/${sessionKey}/index.html?t=${previewKey}`;
+
+  // Layout del preview: split (avatar + panel) o deck/slide full (scrolleable).
+  const DISP_H = 351;
+  const contentBoxW = avatarUrl ? 406 : 560;          // ancho de display del contenido
+  const contentScale = contentBoxW / contentW;        // escala visual
+  const isDeck = contentH > 1080;                     // varias slides apiladas
+  const oneSlideH = Math.round(1080 * contentScale);  // alto de UNA slide escalada
+
+  return (
+    <div className="rounded-lg border bg-white">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <span className="text-sm font-semibold text-gray-700">🎨 Editar {avatarUrl ? "panel" : "slide"} con IA</span>
+        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">Claude Agent SDK</span>
+        <span className="ml-auto text-xs text-gray-400">{job?.status ?? "listo"}</span>
+      </div>
+      {/* Preview en vivo: split (avatar + panel) o deck de slides (scrolleable) */}
+      <div className="flex flex-col items-center gap-1 bg-gray-200 p-3">
+        <div className="flex bg-black shadow overflow-hidden" style={{ width: (avatarUrl ? 218 : 0) + contentBoxW, height: avatarUrl ? DISP_H : oneSlideH }}>
+          {avatarUrl && (
+            <video src={avatarUrl} muted loop playsInline autoPlay className="object-cover" style={{ width: 218, height: DISP_H }} />
+          )}
+          {/* Caja scrolleable: el div interno tiene el tamaño ESCALADO (clave para que el scroll del deck funcione) */}
+          <div style={{ width: contentBoxW, height: avatarUrl ? DISP_H : oneSlideH, overflowY: isDeck ? "auto" : "hidden", overflowX: "hidden" }}>
+            <div style={{ width: contentBoxW, height: Math.round(contentH * contentScale) }}>
+              <iframe
+                key={`${hasEdited}-${previewKey}`}
+                {...(hasEdited ? { src: previewSrc } : { srcDoc: seedHtml })}
+                style={{ width: contentW, height: contentH, border: 0, transform: `scale(${contentScale})`, transformOrigin: "top left" }}
+                title="panel"
+                scrolling="no"
+              />
+            </div>
+          </div>
+        </div>
+        <span className="text-[10px] text-gray-400">
+          {avatarUrl ? "Vista previa del split (avatar + panel)" : isDeck ? "Vista previa del deck · scrolleá para ver las slides" : "Vista previa del slide"} · así quedará el video
+        </span>
+      </div>
+      <div className="space-y-2 p-3">
+        <textarea
+          value={instruction}
+          onChange={(e) => setDraft(sessionKey, e.target.value)}
+          placeholder="Ej: Poné un fondo más claro, el título en amarillo Davivienda, agregá un ícono por bullet y más aire entre líneas."
+          className="h-20 w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm focus:border-red-500 focus:outline-none"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg border border-gray-300 p-1.5 text-xs">
+            {AGENT_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <ImageAttach images={images} setImages={setImages} />
+          <Button
+            size="sm"
+            className="ml-auto"
+            disabled={running || !instruction.trim()}
+            onClick={() => { start(sessionKey, { instruction, model, seedHtml, images }); setImages(() => []); }}
+          >
+            {running ? "Trabajando…" : "Editar con IA"}
+          </Button>
+        </div>
+        {events.length > 0 && (
+          <div ref={logRef} className="max-h-32 overflow-y-auto rounded border border-gray-100 p-2 text-xs">
+            {events.map((e) => (
+              <div key={e.id} className="flex gap-1.5 py-0.5">
+                <span className="w-3 shrink-0 text-center">{e.icon}</span>
+                <span className={e.cls === "tool" ? "font-mono text-gray-500" : e.cls === "result" ? "font-semibold text-green-700" : e.cls === "error" ? "text-red-600" : "text-gray-800"}>{e.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Generation panel - step by step generation
-function GenerationPanel({ item, guion, gen, generating, onGenerateAudio, onGenerateVideo }: {
+function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudio, onGenerateVideo }: {
   item: MallaItem;
   guion: Guion;
   gen?: ResourceGeneration;
+  mallaId: string;
   generating: boolean;
   onGenerateAudio: () => void;
   onGenerateVideo: () => void;
 }) {
   const isVideoAvatar = item.tipo_recurso === "Video avatar";
   const voiceover = guion.contenido.voiceover || guion.contenido.texto;
+
+  const [composing, setComposing] = useState(false);
+  const [composedUrl, setComposedUrl] = useState<string | null>(null);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  // HTML del slide/panel. Editable con el agente; persistido. Avatar → panel 1248x1080;
+  // Video (slides) → slide full-screen 1920x1080.
+  const slideCount = Array.isArray(guion.contenido.slides)
+    ? Math.max(1, (guion.contenido.slides as unknown[]).length)
+    : 1;
+  const [panelHtml, setPanelHtml] = useState<string>(
+    () => (guion.contenido.panel_html as string) ||
+      (isVideoAvatar ? buildAvatarPanelHtml(guion, item.recurso) : buildDeckHtml(guion, item.recurso))
+  );
+
+  const handleCompose = async () => {
+    setComposing(true);
+    setComposeError(null);
+    try {
+      let url: string;
+      if (isVideoAvatar) {
+        if (!gen?.videoUrl) throw new Error("Falta el avatar (generá el video primero)");
+        ({ url } = await composeSplitVideo(gen.videoUrl, panelHtml, `${item.id}_split`));
+      } else {
+        if (!gen?.audioUrl) throw new Error("Falta el audio (generalo primero)");
+        ({ url } = await composeSlidesVideo(gen.audioUrl, panelHtml, `${item.id}_slides`, slideCount));
+      }
+      setComposedUrl(`${url}?t=${Date.now()}`);
+      // Persistir el video compuesto (URL de Storage) para preview/SCORM y que sobreviva al recargar.
+      if (mallaId && url.startsWith("http")) {
+        void guardarGuion(mallaId, item.id, { composed_url: url }).catch(() => {});
+      }
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : "Error al componer el video");
+    } finally {
+      setComposing(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -798,6 +1360,68 @@ function GenerationPanel({ item, guion, gen, generating, onGenerateAudio, onGene
         </div>
       )}
 
+      {/* Step 3: Componer video split (avatar + slide branded) */}
+      {isVideoAvatar && gen?.videoStatus === "completed" && gen.videoUrl && (
+        <div className="p-4 border rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${composedUrl ? "bg-green-500" : "bg-gray-400"}`}>
+                {composedUrl ? "✓" : "3"}
+              </div>
+              <div>
+                <h4 className="font-medium">Componer video split</h4>
+                <p className="text-sm text-gray-500">Avatar (35%) + contenido branded (65%) · FFmpeg</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Editor IA del panel (lado derecho del split) */}
+          <div className="mb-3">
+            <PanelEditor
+              sessionKey={`${mallaId || "m"}_${item.id}_panel`}
+              seedHtml={panelHtml}
+              avatarUrl={gen?.videoUrl}
+              onHtmlChange={(html) => {
+                setPanelHtml(html);
+                if (mallaId) void guardarGuion(mallaId, item.id, { panel_html: html }).catch(() => {});
+              }}
+            />
+          </div>
+
+          {composedUrl ? (
+            <div className="space-y-2">
+              <video controls className="w-full rounded-lg">
+                <source src={composedUrl} type="video/mp4" />
+              </video>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => window.open(composedUrl, "_blank")}>
+                  Abrir en nueva pestaña
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleCompose} disabled={composing}>
+                  Recomponer
+                </Button>
+              </div>
+            </div>
+          ) : composing ? (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg text-blue-700">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              Componiendo con FFmpeg… (puede tomar ~1 min según el largo)
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Button onClick={handleCompose} className="w-full bg-red-600 hover:bg-red-700">
+                🎬 Componer video split
+              </Button>
+              <p className="text-xs text-gray-500">
+                Combina el avatar con un slide branded generado del guión. El look lo controla el HTML
+                (lo podés ajustar con el Editor IA).
+              </p>
+              {composeError && <p className="text-sm text-red-600">{composeError}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Step 2 for Video (slides): Auto-composition in SCORM */}
       {item.tipo_recurso === "Video" && (
         <div className={`p-4 border rounded-lg ${!gen?.audioUrl ? "opacity-50" : ""}`}>
@@ -814,12 +1438,44 @@ function GenerationPanel({ item, guion, gen, generating, onGenerateAudio, onGene
           </div>
 
           {gen?.audioStatus === "completed" ? (
-            <div className="p-3 bg-green-50 rounded-lg text-green-700 text-sm">
-              ✓ Audio listo. El video se compondrá automáticamente en el paso SCORM usando los slides del guión + el audio generado.
+            <div className="space-y-3">
+              <div className="mb-1">
+                <PanelEditor
+                  sessionKey={`${mallaId || "m"}_${item.id}_slide`}
+                  seedHtml={panelHtml}
+                  contentW={1920}
+                  contentH={slideCount * 1080}
+                  onHtmlChange={(html) => {
+                    setPanelHtml(html);
+                    if (mallaId) void guardarGuion(mallaId, item.id, { panel_html: html }).catch(() => {});
+                  }}
+                />
+              </div>
+              {composedUrl ? (
+                <div className="space-y-2">
+                  <video controls className="w-full rounded-lg">
+                    <source src={composedUrl} type="video/mp4" />
+                  </video>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => window.open(composedUrl, "_blank")}>Abrir en nueva pestaña</Button>
+                    <Button variant="ghost" size="sm" onClick={handleCompose} disabled={composing}>Recomponer</Button>
+                  </div>
+                </div>
+              ) : composing ? (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg text-blue-700">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                  Componiendo con FFmpeg… (puede tomar ~1 min)
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Button onClick={handleCompose} className="w-full bg-red-600 hover:bg-red-700">🎬 Componer video (slides + voz)</Button>
+                  {composeError && <p className="text-sm text-red-600">{composeError}</p>}
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-3 bg-gray-50 rounded-lg text-gray-500 text-sm">
-              Primero genera el audio. Luego el video se compone automáticamente.
+              Primero generá el audio. Después podés editar el slide con IA y componer el video.
             </div>
           )}
         </div>
@@ -1004,9 +1660,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     const preguntas = c.preguntas || [];
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <span>🎵</span> Música de evaluación durante el quiz
-        </div>
         {(c.titulo || c.titulo_principal) && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{c.titulo || c.titulo_principal}</h3>}
         {preguntas.map((q: { pregunta: string; opciones: string[]; correcta: number }, i: number) => (
           <div key={i} className="p-4 bg-gray-50 rounded-lg">
@@ -1042,9 +1695,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     const items = c.items || c.tarjetas || c.flashcards || [];
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <span>🎵</span> Música ambiente de fondo
-        </div>
         {(c.titulo || c.titulo_principal) && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{c.titulo || c.titulo_principal}</h3>}
         <div className="grid gap-4 sm:grid-cols-2">
           {items.map((card: { frente?: string; pregunta?: string; reverso?: string; respuesta?: string }, i: number) => (
@@ -1115,9 +1765,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     const c = contenido as any;
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <span>🎵</span> Música ambiente de fondo
-        </div>
         {/* Render titulo from multiple possible field names */}
         {(c.titulo || c.titulo_principal) && (
           <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{c.titulo || c.titulo_principal}</h3>
@@ -1181,9 +1828,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     const filas = c.filas || [];
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <span>🎵</span> Música ambiente de fondo
-        </div>
         {(c.titulo || c.titulo_principal) && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{c.titulo || c.titulo_principal}</h3>}
         {c.descripcion && <p className="text-gray-600">{c.descripcion}</p>}
         <div className="overflow-x-auto">
@@ -1266,9 +1910,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
 
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <span>🎵</span> Música ambiente de fondo
-          </div>
           {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
           {instruccion && <p className="text-sm text-gray-600 italic">{instruccion}</p>}
           <div className={panelClass} style={panelStyle}>
@@ -1313,9 +1954,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     if (isCardsLayout) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <span>🎵</span> Música ambiente de fondo
-          </div>
           {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
           {instruccion && <p className="text-sm text-gray-600 italic">{instruccion}</p>}
           <div className={panelClass} style={panelStyle}>
@@ -1345,9 +1983,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     if (isChecklistLayout) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <span>🎵</span> Música ambiente de fondo
-          </div>
           {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
           {instruccion && <p className="text-sm text-gray-600 italic">{instruccion}</p>}
           <div className={panelClass} style={panelStyle}>
@@ -1387,9 +2022,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
 
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <span>🎵</span> Música ambiente de fondo
-          </div>
           {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
           {instruccion && <p className="text-sm text-gray-600 italic">{instruccion}</p>}
 
@@ -1437,9 +2069,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
     if (isRoadmap) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <span>🎵</span> Música ambiente de fondo
-          </div>
           {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
           {c.instruccion && <p className="text-sm text-gray-600 italic">{c.instruccion}</p>}
           <div className={panelClass} style={panelStyle}>
@@ -1482,9 +2111,6 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-          <span>🎵</span> Música ambiente de fondo
-        </div>
         {titulo && <h3 className="text-xl font-bold text-gray-900 border-b pb-2">{titulo}</h3>}
         {c.instruccion && <p className="text-sm text-gray-600 italic">{c.instruccion}</p>}
         <div className="space-y-3">

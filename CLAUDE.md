@@ -369,7 +369,12 @@ ia-davivienda/
 
 ---
 
-## MVP STREAMLIT - Generador de Mallas (Mayo 2026)
+## MVP STREAMLIT - Generador de Mallas (Mayo 2026) — ⛔ DEPRECADO (jun 2026)
+
+> **⛔ NO USAR / NO LEVANTAR.** El proyecto Streamlit (`streamlit-legacy/`) quedó obsoleto.
+> Fue reemplazado por el **dashboard Next.js** (`frontend/` → http://localhost:3000), que es
+> la interfaz vigente. No tener en cuenta esta sección para nada nuevo; se conserva solo como
+> referencia histórica. El stack a levantar en local es: frontend (`:3000`) + agent-service (`:8090`).
 
 ### Descripción
 App web local para generar mallas curriculares con IA. Reemplaza el workflow anterior de Google Sheets + Apps Script.
@@ -729,22 +734,40 @@ dragItemsContainer.addEventListener('drop', (e) => {
 });
 ```
 
-### 5. Música de Fondo
+### 5. Audio / Música de Fondo — ahora es un COMPONENTE (jun 2026)
+> **Cambio:** la "música de ambiente" YA NO está hardcodeada en cada recurso. Antes los
+> generadores de `frontend/src/lib/resource-renderer.ts` inyectaban un `<audio>` fijo apuntando
+> siempre al mismo `ambient.mp3` (que en realidad era un relato, igual en todos los recursos) +
+> un botón 🔇. **Eso se eliminó por completo.**
+>
+> Ahora el audio es un **componente `audio`** del sistema de componentes, insertable en cualquier
+> parte del contenido (como header, cards, tabla, etc.):
+> ```json
+> { "tipo": "audio", "src": "https://.../pista.mp3", "titulo": "Música de ambiente", "loop": true, "autoplay": false }
+> ```
+> - Render React: `RenderAudio` en `lib/component-renderer.tsx` (interface `AudioComponent`).
+> - HTML standalone: `generateAudioHTML` + estilos `.comp-audio` en `lib/component-html-generator.ts`.
+> - Reproductor con `controls`; `autoplay` casi siempre lo bloquea el browser (queda como opción).
+>
+> **Cómo se activa desde el front:** en la pestaña "Preview + Editor IA" de cada recurso, botón
+> **"🎵 Agregar audio"** (en `ResourceAgentEditor`). Abre un mini-form con **biblioteca de música
+> libre** (`MUSIC_LIBRARY` en `contenido/page.tsx`) + opción de pegar URL propia + preview para
+> escuchar, y campos título/loop/posición. Arma una instrucción y la corre con el agente → inserta
+> el `<audio>` en el HTML donde indiques. No hay inserción directa al JSON `componentes` por UI.
+> - **Biblioteca**: pistas con link directo verificado de **Kevin MacLeod / incompetech.com (CC BY 4.0)**
+>   y **SoundHelix (uso libre)**. Las CC-BY requieren atribución → al elegir una de la biblioteca, la
+>   instrucción le pide al agente que agregue un crédito chico ("Música: …") junto al reproductor.
+> - Pixabay y similares **bloquean hotlinking** (403) → no sirven para link directo.
+>
+> Para SCORM legacy que aún quiera pausar música al reproducir video, este patrón sigue válido:
 ```javascript
 const bgMusic = document.getElementById('bgMusic');
 bgMusic.volume = 0.65; // 65% volumen
-
-// Pausar cuando hay video
 video.addEventListener('play', () => {
-    if (!bgMusic.paused) {
-        bgMusic.dataset.wasPlaying = 'true';
-        bgMusic.pause();
-    }
+    if (!bgMusic.paused) { bgMusic.dataset.wasPlaying = 'true'; bgMusic.pause(); }
 });
 video.addEventListener('ended', () => {
-    if (bgMusic.dataset.wasPlaying === 'true') {
-        bgMusic.play();
-    }
+    if (bgMusic.dataset.wasPlaying === 'true') { bgMusic.play(); }
 });
 ```
 
@@ -910,6 +933,58 @@ function toggleFullscreen() {
 
 ---
 
+## GENERADOR SCORM AUTOMÁTICO (Jun 2026)
+
+Empaquetado automático del curso → SCORM 1.2 (single-SCO) desde `/dashboard/scorm`.
+Reemplaza el stub anterior (que solo simulaba con un `setTimeout`).
+
+**Arquitectura (decidida con el usuario):** Cloud Function Python + assets **bundleados** en el zip +
+tracking **por score de quizzes**.
+
+**Backend** — `functions/core/generators/scorm.py` + endpoint `empaquetar_scorm_endpoint` en `main.py`:
+- `empaquetar_scorm(payload)` arma el zip en memoria: descarga las URLs http(s) de cada HTML a
+  `assets/` y **reescribe las rutas a `../assets/`** (offline), escribe `resources/NN.html` por
+  recurso, genera el **player shell** (`index.html` + `player.js`), incluye `scorm_api.js` (wrapper
+  SCORM 1.2 genérico) y `imsmanifest.xml` (single-SCO, masteryscore configurable).
+- El endpoint sube el zip a Storage `scorm/{malla_id}/SCORM.zip`, `make_public()`, devuelve
+  `{ ok, download_url, size }`. Decorado con `memory=GB_1, timeout_sec=540` (descarga de assets).
+- **Player**: menú agrupado por bloque, prev/next, barra de progreso, bookmark/resume
+  (`cmi.core.lesson_location`). **Score por quizzes**: cada quiz hace
+  `window.parent.postMessage({type:'scorm-quiz-score', score, total})`; el player promedia vs
+  masteryscore → `passed/failed`; si no hubo quizzes, cae a `completed` por recorrido.
+  El quiz interactivo (`resource-renderer.ts` `generateQuizHTML`) ya emite ese postMessage.
+
+**Frontend** — `scorm/page.tsx` `handlePackage`: por cada recurso manda su **HTML final**
+(`resourceFinalHtml()` en `lib/resource-final-html.ts` = `contenido.html` editado, o el generado;
+mismo HTML que el preview) o `video_url`. Llama `empaquetarScorm()` (`lib/api.ts`) → botón de
+descarga real. Para apuntar al emulador: `NEXT_PUBLIC_FUNCTIONS_EMULATOR`.
+
+**Estado:** core + player **validados localmente** (zip se arma, assets se bundlean, player
+renderiza y navega). ⬜ **Falta deploy** del endpoint (`firebase deploy --only functions`) para
+usarlo desde el dashboard en prod. Limitación v1: los quizzes en **modo componentes** son estáticos
+(no reportan score); el que reporta es el tipo **Quiz** interactivo.
+
+---
+
+## EDITAR EL ENVOLTORIO DEL SCORM (shell editable, jun 2026)
+
+El **player/shell** que rodea al contenido (header, menú, navegación, colores, portada) es editable
+con IA + plantillas. Global + override por curso.
+
+- **Shell self-contained**: `DEFAULT_SHELL` en `scorm.py` = un solo HTML con CSS + `SCORM_API_JS` +
+  lógica del player + un bloque **`/* === DAVIVIENDA:COURSE === */ … /* === END:COURSE === */`** con
+  recursos de muestra (data URI) → el preview renderiza solo, sin el paquete. El agente edita el
+  chrome; NO debe tocar el bloque COURSE ni los hooks (`#menu`, `#contentFrame`, `#progressBar`,
+  `#btnPrev/Next/Finish`, `.menu-item`).
+- **Empaquetado**: `empaquetar_scorm` toma `payload.shell_html` (o `DEFAULT_SHELL`) e **inyecta el
+  bloque COURSE real** con `inject_course()` (regex sobre los marcadores). Ya NO hay player.js/
+  scorm_api.js separados (todo inline en index.html).
+- **Endpoint** `scorm_shell`: GET → `{default, global}`; PUT `{scope:'global'|'course', shell_html, malla_id?}`.
+  Global en Firestore `config/scorm.shell_html`; por curso en `malla.scorm_shell_html`.
+- **Frontend** (`scorm/page.tsx`): `ShellEditor` (agente + preview srcDoc/`/ws`) + botones "Guardar
+  para este curso" / "Guardar como global" / "Restablecer". El empaquetado manda
+  `shell_html = curso || global || default`.
+
 ## CHECKLIST PRE-PUBLICACIÓN SCORM
 
 - [ ] Videos reproducen correctamente
@@ -924,6 +999,70 @@ function toggleFullscreen() {
 - [ ] ZIP del SCORM se sube correctamente a Territorium
 
 ---
+
+## AUTH / ROLES (Jun 2026)
+
+Auth = Firebase Auth con **Google** (`frontend/src/contexts/AuthContext.tsx`). Dos roles:
+- **learning**: cuentas con dominio en `LEARNING_DOMAINS` (`davivienda.com`, `alkemy.org`) → dashboard.
+- **solicitante**: **cualquier cuenta de Google** (antes era un flag de `localStorage` sin login real;
+  ahora requiere login con Google e identidad real). El botón "Solicitante" del login hace
+  `signInWithPopup` y fuerza rol solicitante aunque el dominio sea de Learning (para que un
+  davivienda/alkemy pueda solicitar). El rol elegido se persiste en `localStorage.userRole` y se
+  respeta al recargar; sin usuario autenticado no hay rol.
+- El formulario `/solicitante` **prefillea nombre/email** desde la cuenta de Google (editable).
+- Para alternar de rol: cerrar sesión (limpia `userRole`) y elegir la otra tarjeta.
+- Carga por Excel en `/solicitante`: template descargable + autocompletado (lib `xlsx`/SheetJS).
+- Los roles NO están en Firestore (no los afecta limpiar la base); Auth es aparte.
+
+## VIDEO SPLIT — Composición local (Opción C, Jun 2026)
+
+Avatar HeyGen + slide HTML branded → MP4, compuesto con **FFmpeg en el agent-service** (no en Cloud
+Functions, que no tiene ffmpeg). Más barato (HeyGen solo el avatar) y look&feel 100% controlado por HTML.
+
+- **`agent-service/compose.mjs`** → `composeSplit({avatarUrl, contentHtml, id})`: baja el avatar →
+  renderiza el HTML a PNG (Chrome headless, 1248x1080) → FFmpeg `hstack` (avatar 672px recortado +
+  contenido 1248px = 1920x1080), audio del avatar, `-shortest`. Salida en `agent-service/composed/{id}.mp4`.
+- **Endpoint** `POST /compose/split` (body: `avatarUrl`, `contentHtml`, `id`) → `{url}` servido en `/composed/`.
+- **Frontend** (`contenido/page.tsx`): en un recurso "Video avatar" ya generado, **Paso 3 "Componer
+  video split"** → `composeSplitVideo()` (`lib/api.ts`) con el avatar + un slide branded armado por
+  `buildAvatarPanelHtml(guion)` (título + bullets, paleta Davivienda). Muestra el MP4 resultante.
+- Requiere ffmpeg + Chrome donde corre el agent-service (local: OK; prod: contenedor con ambos).
+- **Panel editable con IA**: `PanelEditor` (en `contenido/page.tsx`) usa el `AgentJobsContext` con
+  sessionKey `${mallaId}_${guionId}_panel` → el agente Claude SDK edita el HTML del slide (preview +
+  verify), y `composeSplitVideo` usa ese HTML. Se persiste en `contenido.panel_html` (guardar_guion).
+- **Video de slides (sin avatar)**: tipo "Video" → `composeSlides({audioUrl, contentHtml})` (endpoint
+  `/compose/slides`): slide full-screen 1920x1080 (`buildSlideHtml`) + audio → MP4. Editable con
+  `PanelEditor` (prop `contentW=1920`, sin avatar). Reemplazó el mensaje "se compone en SCORM".
+- **Persistencia del compuesto**: el agent-service sube el MP4 compuesto a Storage
+  (`@google-cloud/storage` + ADC → `gs://davivienda-elearning-assets/composed/{id}.mp4`, público) y
+  devuelve la URL durable. El frontend la persiste en `contenido.composed_url` (guardar_guion) → se
+  usa en el preview del curso y en el empaquetado SCORM, y sobrevive recarga.
+- **Video en preview/SCORM**: `resourceFinalHtml` (`lib/resource-final-html.ts`) maneja Video/Video
+  avatar → página con `<video src=composed_url||video_url>`. El "Previsualizar curso completo" del
+  shell y el packaging usan el compuesto.
+
+## NOTIFICACIONES / MENCIONES POR EMAIL (Jun 2026)
+
+Emails vía **SendGrid** + **@menciones** en comentarios. `functions/core/notifications.py`.
+
+**Disparadores** (best-effort, nunca rompen el endpoint):
+- **@mención en comentario** → mail a los mencionados. El frontend manda `menciones: [emails]` en el
+  body de `agregar_comentario`; el autocomplete (`@`) sale de `listar_usuarios`.
+- **Nueva solicitud** (`crear_solicitud`) → mail al equipo Learning (usuarios de Firebase Auth con
+  dominio en `LEARNING_DOMAINS`).
+- **Asignación** (`actualizar_solicitud`, cambia `asignado_a`) → mail al asignado.
+- **Cambio de estado** (`actualizar_solicitud`, cambia `status`) → mail al solicitante.
+
+**Mencionables**: endpoint `listar_usuarios` = usuarios de Firebase Auth (`auth.list_users()`).
+El `@` en la caja de comentarios (`dashboard/solicitudes/[id]`) autocompleta desde ahí.
+
+**Config**:
+- `SENDGRID_API_KEY` → **secret** (hoy hay un PLACEHOLDER; los envíos fallan/loguean hasta poner la real).
+  Setear: `printf 'TU_KEY' | firebase functions:secrets:set SENDGRID_API_KEY --data-file=- --force`
+  y luego **redeployar** las funciones que lo usan (crear/actualizar/agregar_comentario).
+- `SENDGRID_FROM` (remitente VERIFICADO en SendGrid) y `APP_URL` (base del front para los links) →
+  `functions/.env`.
+- Endpoints con email declaran `secrets=[SENDGRID_API_KEY]`.
 
 ## MODO AGENTE — Editor HTML/CSS/JS con Claude Agent SDK (Jun 2026)
 
@@ -985,12 +1124,39 @@ event: init   data: {"sessionId":"..."}
 event: text   data: {"kind":"text","text":"..."}
 event: tool   data: {"kind":"tool","name":"Edit","detail":"..."}
 event: result data: {"costUsd":0.17,"toolCalls":11,"subtype":"success"}
-event: done   data: {"sessionId":"...","costUsd":...,"toolCalls":...}
+event: done   data: {"sessionId":"...","costUsd":...,"sessionKey":"...","html":"<!DOCTYPE..."}
 ```
 El frontend lo lee con `fetch` + `ReadableStream` (no `EventSource`, porque el endpoint es POST).
 
+**Imágenes adjuntas** (jun 2026): el body de `/agent/edit` acepta `images: [{name, dataUrl(base64)}]`.
+El server las guarda en el workspace y le agrega a la instrucción un aviso ("imágenes disponibles:
+…, usalas con `<img src>` y podés verlas con Read"). El agente las inserta/replica. UI: componente
+`ImageAttach` (botón "📎 Imagen" + thumbnails) en ambos editores (`ResourceAgentEditor` y `PanelEditor`).
+Límite del body subido a 30mb. Las imágenes quedan en el workspace → el preview/compose las resuelve
+por ruta relativa.
+El `done` ahora incluye `sessionKey` y el `html` editado (para que el frontend lo persista en el guión).
+
+### Integrado a la fase de Contenido (jun 2026) — REEMPLAZA al chat gpt-4o
+El editor agéntico dejó de ser una sección aparte ("Editor IA" se sacó del sidebar) y vive dentro
+de **`/dashboard/contenido`**, en la pestaña **"Preview + Editor IA"** de cada recurso. Reemplaza al
+chat gpt-4o single-shot (`iterar_guion_endpoint`) como motor de iteración de contenido.
+- **Workspaces por recurso**: `agent-service/workspaces/{mallaId}_{resourceId}/index.html`. El
+  `/agent/edit` recibe `sessionKey` + `seedHtml`; siembra el HTML solo si el workspace no existe
+  (ediciones siguientes construyen sobre lo ya editado). Preview en vivo: `GET /ws/{key}/index.html`.
+- **Semilla HTML**: la genera el frontend desde el guión JSON con `generateResourceHTML()`
+  (`lib/resource-renderer.ts`) o `generateFullHTML()` (`lib/component-html-generator.ts`).
+- **Fuente de verdad**: el HTML editado se guarda en `guion.contenido.html` (campo nuevo). Si está
+  presente, manda lo visual; el resto del JSON (`voiceover`/`texto`) **sigue vivo** para audio/video.
+- **Componente**: `ResourceAgentEditor` en `contenido/page.tsx` (preview iframe + panel SSE).
+
 ### Estado y pendientes
-- ✅ Fase 0 (spike) · ✅ Servidor SSE · ✅ Fase 2 (integrado a `/dashboard/editor`)
+- ✅ Fase 0 (spike) · ✅ Servidor SSE · ✅ Fase 2 · ✅ Integrado a `/dashboard/contenido` (reemplaza gpt-4o)
+- ⬜ **Persistencia durable (Fase B)**: hoy el `contenido.html` vive en estado del frontend + workspace
+  local; NO sobrevive reload ni lo usa aún el empaquetado SCORM/audio. Falta Cloud Function para
+  guardar `contenido.html` en Firestore y que SCORM/audio lo consuman. Requiere deploy (GCP).
+- ⬜ **Limpieza**: `IterationChat` (gpt-4o) y `chatHistories` quedaron como código muerto en
+  `contenido/page.tsx` (ya no se usan); borrar cuando se confirme el reemplazo. La ruta
+  `/dashboard/editor` (playground) sigue existiendo pero ya no está en el sidebar.
 - ⬜ **Fase 1**: Dockerfile (Node+Chrome+CLI) + sync con Firebase Storage `agents/{sessionId}/` + deploy a Cloud Run (necesita API key + GCP).
 - ⬜ **Fase 3**: validar Firebase ID token en el servicio, sandbox reforzado, `resume` multiturno.
 - Plan completo: `~/.claude/plans/mellow-seeking-map.md`.
@@ -998,4 +1164,4 @@ El frontend lo lee con `fetch` + `ReadableStream` (no `EventSource`, porque el e
 ### Gotchas
 - macOS arm64: si numpy/pandas/lxml dan `incompatible architecture (x86_64)`, reinstalar con `pip install --force-reinstall --no-cache-dir` (eran wheels x86_64 en Mac arm64).
 - El frontend Next.js (16.x) tiene un `AGENTS.md` que avisa que difiere de versiones conocidas → copiar patrones de páginas existentes en vez de asumir.
-- La app Streamlit vieja se movió a `streamlit-legacy/` (Dockerfile actualizado para deployar desde ahí).
+- La app Streamlit (`streamlit-legacy/`) está **DEPRECADA** — no levantarla ni considerarla. La interfaz vigente es el dashboard Next.js (`frontend/`, `:3000`). Ver banner en la sección "MVP STREAMLIT".

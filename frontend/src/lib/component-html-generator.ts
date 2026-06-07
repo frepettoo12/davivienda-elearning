@@ -199,6 +199,22 @@ body {
   margin: 32px 0;
 }
 
+/* Audio (música de ambiente / narración) */
+.comp-audio {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin: 20px 0;
+}
+.comp-audio .comp-audio-icon { font-size: 22px; }
+.comp-audio .comp-audio-body { flex: 1; }
+.comp-audio .comp-audio-label { font-weight: 600; margin-bottom: 6px; opacity: 0.9; }
+.comp-audio audio { width: 100%; }
+
 /* Flashcards */
 .comp-flashcards {
   display: grid;
@@ -419,6 +435,18 @@ function generateCasoHTML(comp: { escenario: string; preguntas: Array<{ pregunta
     `).join('')}`;
 }
 
+function generateAudioHTML(comp: { src: string; titulo?: string; loop?: boolean; autoplay?: boolean }): string {
+  const attrs = ['controls', comp.loop ? 'loop' : '', comp.autoplay ? 'autoplay' : ''].filter(Boolean).join(' ');
+  return `
+    <div class="comp-audio">
+      <span class="comp-audio-icon">🎵</span>
+      <div class="comp-audio-body">
+        ${comp.titulo ? `<div class="comp-audio-label">${comp.titulo}</div>` : ''}
+        <audio ${attrs} src="${comp.src}">Tu navegador no soporta audio.</audio>
+      </div>
+    </div>`;
+}
+
 function generateComponentHTML(component: ResourceComponent): string {
   // Normalize tipo to lowercase for case-insensitive matching
   const tipo = String(component.tipo).toLowerCase().trim();
@@ -435,6 +463,7 @@ function generateComponentHTML(component: ResourceComponent): string {
     case "flashcards": return generateFlashcardsHTML(component as any);
     case "quiz": return generateQuizHTML(component as any);
     case "caso": return generateCasoHTML(component as any);
+    case "audio": return generateAudioHTML(component as any);
     default:
       console.warn(`Unknown component type: ${component.tipo}`);
       return '';

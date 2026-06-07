@@ -4,3 +4,5 @@ _check_*.png
 *.log
 .env
 work/
+workspaces/
+composed/

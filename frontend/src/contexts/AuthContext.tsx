@@ -16,7 +16,7 @@ interface AuthContextType {
   role: UserRole;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
-  signInAsSolicitante: () => void;
+  signInAsSolicitante: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -34,25 +34,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (user?.email) {
+        // El rol se resuelve por la cuenta de Google: dominio de Learning → learning;
+        // cualquier otra cuenta → solicitante. Si el usuario eligió explícitamente
+        // "solicitante" (un dominio de Learning que igual quiere solicitar), se respeta.
         const domain = user.email.split("@")[1];
-        if (LEARNING_DOMAINS.includes(domain)) {
+        const isLearningDomain = LEARNING_DOMAINS.includes(domain);
+        const savedRole = localStorage.getItem("userRole");
+        if (savedRole === "solicitante") {
+          setRole("solicitante");
+        } else if (savedRole === "learning" && isLearningDomain) {
           setRole("learning");
+        } else {
+          setRole(isLearningDomain ? "learning" : "solicitante");
         }
+      } else {
+        // Sin usuario autenticado no hay rol (el solicitante ahora requiere login real).
+        setRole(null);
       }
       setLoading(false);
     });
-
-    // Check for solicitante in localStorage
-    const savedRole = localStorage.getItem("userRole");
-    if (savedRole === "solicitante") {
-      setRole("solicitante");
-      setLoading(false);
-    }
 
     return () => unsubscribe();
   }, []);
 
   const signInWithGoogle = async () => {
+    // Fijar el rol antes del popup (mismo motivo que en signInAsSolicitante:
+    // onAuthStateChanged lee localStorage al completar el login).
+    localStorage.setItem("userRole", "learning");
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const email = result.user.email;
@@ -60,9 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const domain = email.split("@")[1];
         if (LEARNING_DOMAINS.includes(domain)) {
           setRole("learning");
-          localStorage.setItem("userRole", "learning");
         } else {
-          // Not allowed domain
+          // Dominio no permitido para Learning
+          localStorage.removeItem("userRole");
           await firebaseSignOut(auth);
           throw new Error("Email no autorizado. Solo dominios: " + LEARNING_DOMAINS.join(", "));
         }
@@ -73,9 +81,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signInAsSolicitante = () => {
-    setRole("solicitante");
+  // Solicitante con Google: cualquier cuenta, sin restricción de dominio.
+  // Importante: fijar el rol en localStorage ANTES del popup, porque
+  // onAuthStateChanged se dispara al completarse el login y lee ese valor;
+  // si no, un dominio de Learning caería por default en rol "learning" (race).
+  const signInAsSolicitante = async () => {
     localStorage.setItem("userRole", "solicitante");
+    try {
+      await signInWithPopup(auth, googleProvider);
+      setRole("solicitante");
+    } catch (error) {
+      localStorage.removeItem("userRole");
+      console.error("Error signing in (solicitante):", error);
+      throw error;
+    }
   };
 
   const signOut = async () => {

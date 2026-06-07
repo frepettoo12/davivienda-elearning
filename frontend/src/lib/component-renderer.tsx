@@ -20,7 +20,8 @@ export type ComponentType =
   | "separador"
   | "flashcards"
   | "quiz"
-  | "caso";
+  | "caso"
+  | "audio";
 
 // Definición de cada componente
 export interface HeaderComponent {
@@ -109,6 +110,16 @@ export interface CasoComponent {
   }>;
 }
 
+// Audio: música de ambiente o narración insertable en cualquier parte del contenido.
+// Reemplaza a la música hardcodeada que antes venía baked-in en cada recurso.
+export interface AudioComponent {
+  tipo: "audio";
+  src: string;            // URL del audio (mp3, etc.)
+  titulo?: string;        // Etiqueta visible (ej: "Música de ambiente")
+  loop?: boolean;         // Repetir en bucle (default false)
+  autoplay?: boolean;     // Intentar reproducir solo (los browsers suelen bloquearlo; default false)
+}
+
 export type ResourceComponent =
   | HeaderComponent
   | IntroComponent
@@ -120,7 +131,8 @@ export type ResourceComponent =
   | SeparadorComponent
   | FlashcardsComponent
   | QuizComponent
-  | CasoComponent;
+  | CasoComponent
+  | AudioComponent;
 
 // Config de estilos globales
 export interface ComponentConfig {
@@ -274,6 +286,20 @@ export function RenderSeparador() {
   return <hr className="my-6 border-gray-200" />;
 }
 
+export function RenderAudio({ src, titulo, loop }: AudioComponent) {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg my-4">
+      <span className="text-xl">🎵</span>
+      <div className="flex-1">
+        {titulo && <p className="text-sm font-medium text-gray-700 mb-1">{titulo}</p>}
+        <audio controls loop={loop} src={src} className="w-full">
+          Tu navegador no soporta audio.
+        </audio>
+      </div>
+    </div>
+  );
+}
+
 export function RenderFlashcards({ items }: FlashcardsComponent) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 mb-4">
@@ -370,6 +396,8 @@ export function RenderComponent(component: ResourceComponent) {
       return <RenderQuiz {...(component as QuizComponent)} />;
     case "caso":
       return <RenderCaso {...(component as CasoComponent)} />;
+    case "audio":
+      return <RenderAudio {...(component as AudioComponent)} />;
     default:
       console.warn(`Unknown component type: ${component.tipo}`);
       return null;

@@ -7,6 +7,7 @@ import {
   crearMalla,
   obtenerMalla,
   iterarMalla,
+  guardarMalla,
   actualizarSolicitud,
   listarSolicitudes,
   Solicitud,
@@ -18,6 +19,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -44,6 +53,9 @@ const ETAPA_COLORS: Record<string, string> = {
   "Cierre": "bg-green-100 text-green-800",
 };
 
+const ETAPAS = ["Introducción", "Desarrollo", "Cierre"];
+const TIPOS = Object.keys(TIPO_RECURSO_ICONS);
+
 export default function MallaPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -57,6 +69,8 @@ export default function MallaPage() {
   const [iterating, setIterating] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // For showing in-progress work
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
@@ -137,6 +151,48 @@ export default function MallaPage() {
       console.error(err);
     } finally {
       setIterating(false);
+    }
+  };
+
+  // Edición manual
+  const updateItem = (index: number, field: keyof MallaItem, value: string | number) => {
+    setMallaItems((prev) => prev.map((it, i) => (i === index ? { ...it, [field]: value } : it)));
+  };
+  const addRow = () => {
+    setMallaItems((prev) => [
+      ...prev,
+      { id: prev.length + 1, etapa: "Desarrollo", bloque: "", tipo_recurso: "Infografía", recurso: "", descripcion: "", duracion_min: 2 } as MallaItem,
+    ]);
+  };
+  const deleteRow = (index: number) => setMallaItems((prev) => prev.filter((_, i) => i !== index));
+  const moveRow = (index: number, dir: -1 | 1) => {
+    setMallaItems((prev) => {
+      const j = index + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const copy = [...prev];
+      [copy[index], copy[j]] = [copy[j], copy[index]];
+      return copy;
+    });
+  };
+  const saveMalla = async () => {
+    if (!mallaId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await guardarMalla(mallaId, mallaItems);
+      setMallaItems(result.malla);
+      setEditMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al guardar la malla");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const cancelEdit = async () => {
+    setEditMode(false);
+    if (mallaId) {
+      const malla = await obtenerMalla(mallaId);
+      setMallaItems(malla.malla);
     }
   };
 
@@ -223,12 +279,26 @@ export default function MallaPage() {
           <span className="text-gray-400">/</span>
           <span className="text-gray-600 truncate">{solicitud?.curso.nombre}</span>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">Malla Curricular</h1>
-        {solicitud && (
-          <p className="text-gray-500">
-            Curso: <span className="font-medium text-gray-700">{solicitud.curso.nombre}</span>
-          </p>
-        )}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 truncate">
+              {solicitud?.curso.nombre || "Malla Curricular"}
+            </h1>
+            <p className="text-sm text-gray-500">
+              Malla Curricular
+              {mallaItems.length > 0 && ` · ${mallaItems.length} recursos · ${totalDuration} min`}
+            </p>
+          </div>
+          {mallaItems.length > 0 && !editMode && (
+            <Button
+              size="lg"
+              onClick={() => router.push(`/dashboard/diseno?malla=${mallaId}`)}
+              className="shrink-0 bg-red-600 hover:bg-red-700 shadow-sm"
+            >
+              Continuar a Diseño →
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -315,55 +385,110 @@ export default function MallaPage() {
                     {mallaItems.length} recursos | {totalDuration} minutos totales
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => router.push(`/dashboard/diseno?malla=${mallaId}`)}>
-                  Continuar a Diseño →
-                </Button>
+                <div className="flex gap-2">
+                  {editMode ? (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
+                        Cancelar
+                      </Button>
+                      <Button size="sm" onClick={saveMalla} disabled={saving} className="bg-red-600 hover:bg-red-700">
+                        {saving ? "Guardando…" : "Guardar cambios"}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => setEditMode(true)}>
+                      ✎ Editar manualmente
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">#</TableHead>
-                      <TableHead>Etapa</TableHead>
-                      <TableHead>Bloque</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Recurso</TableHead>
-                      <TableHead className="text-right">Duración</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mallaItems.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-mono text-gray-500">{item.id}</TableCell>
-                        <TableCell>
-                          <Badge className={ETAPA_COLORS[item.etapa] || "bg-gray-100"}>
-                            {item.etapa}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">{item.bloque}</TableCell>
-                        <TableCell>
-                          <span className="flex items-center gap-1">
-                            <span>{TIPO_RECURSO_ICONS[item.tipo_recurso] || "📄"}</span>
-                            <span className="text-sm text-gray-600">{item.tipo_recurso}</span>
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{item.recurso}</p>
-                            <p className="text-xs text-gray-500 line-clamp-1">{item.descripcion}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">{item.duracion_min} min</TableCell>
+              {editMode ? (
+                <CardContent className="space-y-3">
+                  {mallaItems.map((item, index) => (
+                    <div key={index} className="rounded-lg border bg-gray-50/60 p-3 space-y-2">
+                      {/* fila superior: orden, etapa, tipo, duración, acciones */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-gray-400 w-5 text-center">{index + 1}</span>
+                        <Select value={item.etapa} onValueChange={(v) => updateItem(index, "etapa", v || "")}>
+                          <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {ETAPAS.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={item.tipo_recurso} onValueChange={(v) => updateItem(index, "tipo_recurso", v || "")}>
+                          <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {TIPOS.map((t) => <SelectItem key={t} value={t}>{TIPO_RECURSO_ICONS[t]} {t}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <div className="ml-auto flex items-center gap-1">
+                          <Input
+                            type="number" min={0}
+                            className="h-8 w-16 text-right text-sm"
+                            value={item.duracion_min}
+                            onChange={(e) => updateItem(index, "duracion_min", parseInt(e.target.value) || 0)}
+                          />
+                          <span className="text-xs text-gray-400 mr-1">min</span>
+                          <button type="button" onClick={() => moveRow(index, -1)} disabled={index === 0} className="rounded px-1.5 py-1 text-gray-500 hover:bg-gray-200 disabled:opacity-30" title="Subir">↑</button>
+                          <button type="button" onClick={() => moveRow(index, 1)} disabled={index === mallaItems.length - 1} className="rounded px-1.5 py-1 text-gray-500 hover:bg-gray-200 disabled:opacity-30" title="Bajar">↓</button>
+                          <button type="button" onClick={() => deleteRow(index)} className="rounded px-1.5 py-1 text-red-500 hover:bg-red-50" title="Eliminar">🗑</button>
+                        </div>
+                      </div>
+                      {/* campos de texto a todo el ancho */}
+                      <Input className="h-8 text-sm" value={item.bloque} onChange={(e) => updateItem(index, "bloque", e.target.value)} placeholder="Bloque (ej: Identificación de clientes)" />
+                      <Input className="h-8 text-sm" value={item.recurso} onChange={(e) => updateItem(index, "recurso", e.target.value)} placeholder="Nombre del recurso" />
+                      <Input className="h-8 text-sm" value={item.descripcion} onChange={(e) => updateItem(index, "descripcion", e.target.value)} placeholder="Descripción" />
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={addRow} className="w-full border-dashed">
+                    + Agregar recurso
+                  </Button>
+                </CardContent>
+              ) : (
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">#</TableHead>
+                        <TableHead>Etapa</TableHead>
+                        <TableHead>Bloque</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Recurso</TableHead>
+                        <TableHead className="text-right">Duración</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
+                    </TableHeader>
+                    <TableBody>
+                      {mallaItems.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-mono text-gray-500">{index + 1}</TableCell>
+                          <TableCell>
+                            <Badge className={ETAPA_COLORS[item.etapa] || "bg-gray-100"}>{item.etapa}</Badge>
+                          </TableCell>
+                          <TableCell className="font-medium">{item.bloque}</TableCell>
+                          <TableCell>
+                            <span className="flex items-center gap-1">
+                              <span>{TIPO_RECURSO_ICONS[item.tipo_recurso] || "📄"}</span>
+                              <span className="text-sm text-gray-600">{item.tipo_recurso}</span>
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{item.recurso}</p>
+                              <p className="text-xs text-gray-500 line-clamp-1">{item.descripcion}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">{item.duracion_min} min</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              )}
             </Card>
           )}
 
           {/* Iterate section */}
-          {mallaItems.length > 0 && (
+          {!editMode && mallaItems.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Iterar Malla</CardTitle>

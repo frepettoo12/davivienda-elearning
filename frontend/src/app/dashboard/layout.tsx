@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
+import { AgentJobsProvider } from "@/contexts/AgentJobsContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,12 +18,11 @@ import {
 const navItems = [
   { href: "/dashboard", label: "Solicitudes", icon: "inbox" },
   { href: "/dashboard/malla", label: "Malla", icon: "grid" },
-  { href: "/dashboard/diseno", label: "Diseño", icon: "palette" },
+  { href: "/dashboard/diseno", label: "Diseño Instruccional", icon: "palette" },
   { href: "/dashboard/contenido", label: "Contenido", icon: "video" },
-  { href: "/dashboard/editor", label: "Editor IA", icon: "sparkles" },
-  { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
   { href: "/dashboard/scorm", label: "SCORM", icon: "package" },
   { href: "/dashboard/lms", label: "LMS", icon: "upload" },
+  { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
 ];
 
 const icons: Record<string, React.ReactNode> = {
@@ -176,7 +176,7 @@ export default function DashboardLayout({
 
       {/* Main content */}
       <main className="flex-1 bg-gray-50">
-        {children}
+        <AgentJobsProvider>{children}</AgentJobsProvider>
       </main>
     </div>
   );

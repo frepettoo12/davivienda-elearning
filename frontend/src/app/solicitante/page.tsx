@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import { crearSolicitud } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,9 +42,12 @@ const COURSE_TYPES = [
 
 export default function NuevaSolicitudPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [excelMsg, setExcelMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     // Solicitante
@@ -62,6 +67,107 @@ export default function NuevaSolicitudPage() {
     // Meta
     prioridad: "media" as "alta" | "media" | "baja",
   });
+
+  // Prefill nombre/email con la cuenta de Google autenticada (si están vacíos).
+  useEffect(() => {
+    if (!user) return;
+    setFormData((prev) => ({
+      ...prev,
+      nombre: prev.nombre || user.displayName || "",
+      email: prev.email || user.email || "",
+    }));
+  }, [user]);
+
+  // Columnas del template Excel (orden y nombres de cabecera)
+  const EXCEL_COLUMNS = [
+    "nombre", "email", "area", "nombre_curso", "tipo_curso", "audiencia",
+    "nivel", "duracion_min", "requiere_evaluacion", "prioridad", "objetivo",
+    "temas", "documentacion",
+  ];
+
+  const downloadTemplate = () => {
+    const ejemplo = {
+      nombre: "Juan Pérez",
+      email: "juan.perez@davivienda.com",
+      area: "Cumplimiento",
+      nombre_curso: "FATCA y CRS para Asesores",
+      tipo_curso: "compliance",
+      audiencia: "Asesores comerciales",
+      nivel: "Intermedio",
+      duracion_min: 15,
+      requiere_evaluacion: "si",
+      prioridad: "media",
+      objetivo: "Al finalizar, el participante podrá identificar clientes sujetos a FATCA y CRS.",
+      temas: "Qué es FATCA; Qué es CRS; Identificación de clientes; Documentación requerida",
+      documentacion: "",
+    };
+    // Hoja de datos + hoja de ayuda con valores válidos
+    const ws = XLSX.utils.json_to_sheet([ejemplo], { header: EXCEL_COLUMNS });
+    const ayuda = XLSX.utils.aoa_to_sheet([
+      ["Campo", "Valores válidos / formato"],
+      ["tipo_curso", COURSE_TYPES.map((t) => t.value).join(" | ")],
+      ["nivel", NIVELES.join(" | ")],
+      ["requiere_evaluacion", "si | no"],
+      ["prioridad", "alta | media | baja"],
+      ["area", AREAS.join(" | ")],
+      ["temas", "Separar cada tema con punto y coma ( ; )"],
+      ["duracion_min", "Número de minutos (ej: 15)"],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Solicitud");
+    XLSX.utils.book_append_sheet(wb, ayuda, "Instrucciones");
+    XLSX.writeFile(wb, "template_solicitud_curso.xlsx");
+  };
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setExcelMsg(null);
+    setError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+      if (!rows.length) {
+        setError("El Excel no tiene filas de datos.");
+        return;
+      }
+      const r = rows[0];
+      const str = (k: string) => String(r[k] ?? "").trim();
+      const tipo = str("tipo_curso").toLowerCase();
+      const tipoValido = COURSE_TYPES.find((t) => t.value === tipo)?.value || formData.courseType;
+      const prio = str("prioridad").toLowerCase();
+      const prioValida = (["alta", "media", "baja"].includes(prio) ? prio : "media") as "alta" | "media" | "baja";
+      const temasRaw = str("temas");
+      const temas = temasRaw.includes(";")
+        ? temasRaw.split(";").map((t) => t.trim()).filter(Boolean).join("\n")
+        : temasRaw;
+
+      setFormData((prev) => ({
+        ...prev,
+        nombre: str("nombre") || prev.nombre,
+        email: str("email") || prev.email,
+        area: str("area") || prev.area,
+        cursoNombre: str("nombre_curso") || prev.cursoNombre,
+        courseType: tipoValido,
+        audiencia: str("audiencia") || prev.audiencia,
+        nivel: str("nivel") || prev.nivel,
+        duracionMin: parseInt(str("duracion_min")) || prev.duracionMin,
+        requiereEval: str("requiere_evaluacion").toLowerCase() !== "no",
+        prioridad: prioValida,
+        objetivo: str("objetivo") || prev.objetivo,
+        temas: temas || prev.temas,
+        documentacion: str("documentacion") || prev.documentacion,
+      }));
+      const extra = rows.length > 1 ? ` (se cargó la 1ª de ${rows.length} filas)` : "";
+      setExcelMsg(`✓ Datos cargados desde "${file.name}"${extra}. Revisá y enviá.`);
+    } catch (err) {
+      setError(`No se pudo leer el Excel: ${err instanceof Error ? err.message : "formato inválido"}`);
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,6 +226,36 @@ export default function NuevaSolicitudPage() {
         <h1 className="text-2xl font-bold text-gray-900">Nueva Solicitud de Curso</h1>
         <p className="text-gray-500">Completa el formulario para solicitar un nuevo curso e-learning</p>
       </div>
+
+      {/* Importar desde Excel */}
+      <Card className="mb-6 border-dashed">
+        <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">📊 Cargar desde Excel</p>
+            <p className="text-xs text-gray-500">
+              Descargá el template, completalo y subilo para autocompletar el formulario.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={downloadTemplate}>
+              ⬇ Descargar template
+            </Button>
+            <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
+              ⬆ Subir Excel
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={handleExcelUpload}
+            />
+          </div>
+        </CardContent>
+      </Card>
+      {excelMsg && (
+        <div className="mb-6 rounded-lg bg-green-50 p-3 text-sm text-green-700">{excelMsg}</div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="grid gap-6 lg:grid-cols-2">
