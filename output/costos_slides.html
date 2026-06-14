@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Costos · Pipeline E-Learning IA · Davivienda</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600&display=swap');
+
+:root{
+  --red-primary:#DA291C; --red-dark:#B71C1C; --red-light:#FFEBEE;
+  --yellow-davi:#FFD700; --blue-davi:#1E3A8A;
+  --black:#1A1A1A; --gray-dark:#4A4A4A; --gray-medium:#9E9E9E;
+  --gray-light:#E0E0E0; --gray-bg:#F8F8F8; --white:#FFFFFF; --green:#4CAF50;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{background:#222;font-family:'Open Sans',sans-serif;}
+
+/* Viewport scaler: cada slide es 1920x1080 y se escala a la ventana */
+.deck{display:flex;flex-direction:column;align-items:center;gap:30px;padding:30px 0;}
+.scaler{width:100%;max-width:1280px;}
+.slide-wrap{position:relative;width:100%;padding-top:56.25%;box-shadow:0 8px 40px rgba(0,0,0,.4);border-radius:6px;overflow:hidden;}
+.slide{
+  position:absolute;top:0;left:0;width:1920px;height:1080px;
+  transform-origin:top left;background:var(--white);overflow:hidden;
+}
+
+/* ---- branding base (de base_v2.css) ---- */
+.bg-pattern{position:absolute;inset:0;background:
+  linear-gradient(135deg,rgba(0,0,0,.01) 25%,transparent 25%),
+  linear-gradient(225deg,rgba(0,0,0,.01) 25%,transparent 25%),
+  linear-gradient(45deg,rgba(0,0,0,.01) 25%,transparent 25%),
+  linear-gradient(315deg,rgba(0,0,0,.01) 25%,transparent 25%);
+  background-size:80px 80px;pointer-events:none;}
+.top-accent{position:absolute;top:0;left:0;width:100%;height:6px;background:var(--red-primary);}
+.bottom-bar{position:absolute;bottom:0;left:0;width:100%;height:6px;
+  background:linear-gradient(to right,var(--gray-light),var(--gray-medium),var(--gray-light));}
+.logo-davivienda{position:absolute;top:25px;left:40px;display:flex;flex-direction:column;align-items:center;gap:5px;z-index:5;}
+.logo-house{width:55px;height:50px;}
+.logo-house svg{width:100%;height:100%;}
+.logo-text{font-family:'Montserrat',sans-serif;font-weight:800;font-size:18px;color:var(--red-primary);letter-spacing:1px;}
+.progress-bar{position:absolute;top:34px;right:50px;display:flex;align-items:center;z-index:5;}
+.arrow{width:0;height:0;border-top:16px solid transparent;border-bottom:16px solid transparent;border-left:18px solid var(--gray-light);margin-left:-4px;}
+.arrow:first-child{margin-left:0;}
+.arrow.active{border-left-color:var(--red-primary);}
+.arrow.completed{border-left-color:#666;}
+.progress-number{background:var(--red-primary);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;font-size:14px;margin:0 8px;}
+.progress-label{font-family:'Montserrat',sans-serif;font-weight:600;font-size:13px;color:var(--red-primary);margin-left:6px;line-height:1.3;}
+.title-bar{position:absolute;top:48px;left:230px;background:var(--red-primary);padding:14px 34px;border-radius:8px;max-width:980px;}
+.title-bar h1{font-family:'Montserrat',sans-serif;font-weight:700;font-size:30px;color:#fff;line-height:1.25;}
+.stage{position:absolute;top:150px;left:60px;right:60px;bottom:50px;display:flex;flex-direction:column;justify-content:center;}
+
+/* ---- componentes ---- */
+.lead{font-family:'Open Sans',sans-serif;font-size:24px;color:var(--gray-dark);line-height:1.5;margin-bottom:26px;}
+.lead b{color:var(--black);}
+
+/* Slide 1: 4 variable cards */
+.var-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;margin-top:10px;}
+.var-card{background:#fff;border:1px solid var(--gray-light);border-top:7px solid var(--red-primary);border-radius:16px;padding:48px 36px;box-shadow:0 4px 20px rgba(0,0,0,.08);display:flex;flex-direction:column;min-height:640px;}
+.var-ico{width:104px;height:104px;border-radius:24px;background:var(--red-light);display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:30px;}
+.var-name{font-family:'Montserrat',sans-serif;font-weight:700;font-size:30px;color:var(--black);line-height:1.15;margin-bottom:8px;}
+.var-vendor{font-family:'Montserrat',sans-serif;font-weight:600;font-size:16px;color:var(--red-primary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:24px;}
+.var-unit{font-family:'Open Sans',sans-serif;font-size:21px;color:var(--gray-dark);line-height:1.5;margin-bottom:auto;}
+.var-price{margin-top:30px;}
+.var-price .num{font-family:'Montserrat',sans-serif;font-weight:800;font-size:50px;color:var(--red-primary);}
+.var-price .per{font-family:'Open Sans',sans-serif;font-size:19px;color:var(--gray-medium);}
+.var-note{font-family:'Open Sans',sans-serif;font-size:16px;color:var(--gray-medium);margin-top:8px;}
+
+/* Slide 2: formula + breakdown */
+.two-col{display:flex;gap:48px;align-items:center;width:100%;}
+.col-left{flex:1.05;}
+.col-right{flex:1;}
+.formula{background:var(--black);border-radius:18px;padding:38px 40px;color:#fff;font-family:'Montserrat',sans-serif;}
+.formula .ft{font-size:18px;color:var(--yellow-davi);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:22px;}
+.formula .row{display:flex;align-items:baseline;gap:14px;font-size:25px;font-weight:600;margin:14px 0;}
+.formula .row .op{color:var(--red-primary);font-weight:800;width:24px;}
+.formula .row .lbl{flex:1;}
+.formula .row .val{color:var(--yellow-davi);font-weight:800;}
+.formula .row small{color:var(--gray-medium);font-size:15px;font-weight:500;}
+.bd-table{width:100%;border-collapse:collapse;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);}
+.bd-table th{background:var(--red-primary);color:#fff;font-family:'Montserrat',sans-serif;font-weight:700;font-size:18px;text-align:left;padding:18px 22px;}
+.bd-table td{padding:18px 22px;font-family:'Open Sans',sans-serif;font-size:20px;color:var(--gray-dark);border-bottom:1px solid var(--gray-light);}
+.bd-table td.amt{font-family:'Montserrat',sans-serif;font-weight:700;color:var(--black);text-align:right;white-space:nowrap;}
+.bd-table tr.total td{background:var(--red-light);font-family:'Montserrat',sans-serif;font-weight:800;color:var(--red-primary);font-size:22px;border-bottom:none;}
+.recipe{background:var(--red-light);border-left:6px solid var(--red-primary);border-radius:10px;padding:22px 26px;margin-top:26px;font-family:'Montserrat',sans-serif;font-weight:600;font-size:21px;color:var(--black);line-height:1.5;}
+.recipe b{color:var(--red-primary);}
+.dur-badge{background:var(--red-light);border:2px solid var(--red-primary);border-radius:12px;padding:16px 30px;margin-bottom:26px;font-family:'Open Sans',sans-serif;font-size:21px;color:var(--gray-dark);text-align:center;}
+.dur-badge b{font-family:'Montserrat',sans-serif;color:var(--red-primary);}
+.dur-badge .free{color:var(--green);font-weight:700;font-family:'Montserrat',sans-serif;}
+
+/* Slide 3: scaling + levers */
+.scale-table{width:100%;border-collapse:collapse;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);margin-bottom:30px;}
+.scale-table th{background:var(--black);color:#fff;font-family:'Montserrat',sans-serif;font-weight:700;font-size:18px;padding:16px 20px;text-align:center;}
+.scale-table th:first-child{text-align:left;}
+.scale-table td{padding:16px 20px;font-family:'Open Sans',sans-serif;font-size:19px;color:var(--gray-dark);text-align:center;border-bottom:1px solid var(--gray-light);}
+.scale-table td:first-child{text-align:left;font-family:'Montserrat',sans-serif;font-weight:700;color:var(--black);}
+.scale-table td.cost{font-family:'Montserrat',sans-serif;font-weight:800;color:var(--red-primary);font-size:22px;}
+.scale-table tr.hl td{background:var(--red-light);}
+.lever-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.lever{background:#fff;border:1px solid var(--gray-light);border-radius:14px;padding:24px 26px;display:flex;gap:18px;align-items:flex-start;box-shadow:0 4px 20px rgba(0,0,0,.06);}
+.lever .lic{font-size:34px;line-height:1;}
+.lever .lt{font-family:'Montserrat',sans-serif;font-weight:700;font-size:20px;color:var(--black);margin-bottom:6px;}
+.lever .ld{font-family:'Open Sans',sans-serif;font-size:17px;color:var(--gray-dark);line-height:1.45;}
+.lever .ld b{color:var(--red-primary);}
+.infra-strip{margin-top:26px;background:var(--gray-bg);border-radius:12px;padding:22px 28px;font-family:'Open Sans',sans-serif;font-size:19px;color:var(--gray-dark);line-height:1.5;}
+.infra-strip b{color:var(--black);font-family:'Montserrat',sans-serif;}
+
+.sec-title{font-family:'Montserrat',sans-serif;font-weight:800;font-size:30px;color:var(--black);margin-bottom:18px;}
+.sec-title .red{color:var(--red-primary);}
+
+/* Fase 2 · tiers de avatar */
+.tier-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;margin-top:6px;}
+.tier-card{position:relative;background:#fff;border:1px solid var(--gray-light);border-top:7px solid var(--red-primary);border-radius:16px;padding:46px 36px;box-shadow:0 4px 20px rgba(0,0,0,.08);display:flex;flex-direction:column;min-height:600px;}
+.tier-card.save{border-top-color:var(--green);}
+.tier-tag{position:absolute;top:22px;right:24px;font-family:'Montserrat',sans-serif;font-weight:700;font-size:15px;padding:6px 16px;border-radius:20px;background:var(--gray-bg);color:var(--gray-dark);}
+.tier-card.save .tier-tag{background:#E8F5E9;color:var(--green);}
+.tier-card .var-unit{margin-bottom:26px;}
+.tier-foot{margin-top:auto;}
+.tier-rate{font-family:'Open Sans',sans-serif;font-size:18px;color:var(--gray-medium);margin-bottom:12px;}
+.tier-course{font-family:'Montserrat',sans-serif;font-weight:800;font-size:48px;color:var(--red-primary);line-height:1;}
+.tier-card.save .tier-course{color:var(--green);}
+.tier-course span{font-family:'Open Sans',sans-serif;font-weight:400;font-size:18px;color:var(--gray-medium);display:block;margin-bottom:2px;}
+
+/* Fase 2 · impacto video IA */
+.impact{margin-top:28px;background:var(--black);border-radius:14px;padding:24px 30px;font-family:'Open Sans',sans-serif;font-size:21px;color:#fff;line-height:1.5;}
+.impact b{font-family:'Montserrat',sans-serif;color:var(--yellow-davi);}
+.lead-sm{font-family:'Open Sans',sans-serif;font-size:21px;color:var(--gray-dark);line-height:1.5;margin-bottom:22px;}
+.lead-sm b{color:var(--black);}
+
+@media(max-width:700px){.title-bar h1{font-size:30px;}}
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- ============ SLIDE 1 ============ -->
+<div class="scaler"><div class="slide-wrap"><div class="slide" data-slide>
+  <div class="bg-pattern"></div><div class="top-accent"></div>
+  <div class="logo-davivienda">
+    <div class="logo-house"><svg viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="50" cy="15" rx="45" ry="12" fill="#FFD700"/><ellipse cx="50" cy="15" rx="25" ry="8" fill="#DAA520"/>
+      <path d="M20 35 L50 15 L80 35 L80 75 L20 75 Z" fill="#DA291C"/><path d="M15 35 L50 10 L85 35 L80 35 L50 15 L20 35 Z" fill="#B71C1C"/>
+      <ellipse cx="35" cy="50" rx="8" ry="10" fill="#1E3A8A"/><ellipse cx="65" cy="50" rx="8" ry="10" fill="#1E3A8A"/>
+      <circle cx="35" cy="48" r="3" fill="white"/><circle cx="65" cy="48" r="3" fill="white"/>
+      <ellipse cx="50" cy="68" rx="10" ry="8" fill="#FFD700"/><ellipse cx="50" cy="70" rx="6" ry="4" fill="#DAA520"/></svg></div>
+    <span class="logo-text">DAVIVIENDA</span>
+  </div>
+  <div class="progress-bar"><div class="arrow active"></div><div class="arrow"></div><div class="arrow"></div>
+    <div class="progress-number">1</div><div class="progress-label">Costos</div></div>
+  <div class="title-bar"><h1>Las 4 variables del costo</h1></div>
+  <div class="stage">
+    <p class="lead">Todo lo que escala con el uso se reduce a <b>4 unidades de medida</b>. Cada una tiene su precio.</p>
+    <div class="var-grid">
+      <div class="var-card">
+        <div class="var-ico">🎭</div>
+        <div class="var-name">Minuto de avatar</div>
+        <div class="var-vendor">HeyGen</div>
+        <div class="var-unit">1 minuto de video con avatar. Se genera ~3× hasta quedar bien → se factura ×3.</div>
+        <div class="var-price"><span class="num">$0.50</span> <span class="per">/ min</span></div>
+        <div class="var-note">rango $0.30 – 1.00 · ×3 generaciones</div>
+      </div>
+      <div class="var-card">
+        <div class="var-ico">🎙️</div>
+        <div class="var-name">Minuto de voz</div>
+        <div class="var-vendor">ElevenLabs</div>
+        <div class="var-unit">1 minuto de audio (TTS). El voiceover de todo el contenido.</div>
+        <div class="var-price"><span class="num">$0.15</span> <span class="per">/ min</span></div>
+        <div class="var-note">rango $0.10 – 0.30 · según plan</div>
+      </div>
+      <div class="var-card">
+        <div class="var-ico">🤖</div>
+        <div class="var-name">Edición de IA</div>
+        <div class="var-vendor">Claude</div>
+        <div class="var-unit">1 iteración de un recurso: edita → renderiza → se autocorrige.</div>
+        <div class="var-price"><span class="num">$0.12</span> <span class="per">/ edición</span></div>
+        <div class="var-note">Haiku $0.05 · Sonnet $0.12 · Opus $0.27</div>
+      </div>
+      <div class="var-card">
+        <div class="var-ico">📝</div>
+        <div class="var-name">Texto del curso</div>
+        <div class="var-vendor">Gemini 2.5 Flash</div>
+        <div class="var-unit">Malla + guiones + iteraciones. ≈ 70k tokens por curso.</div>
+        <div class="var-price"><span class="num">$0.10</span> <span class="per">/ curso</span></div>
+        <div class="var-note">$0.30/1M in · $2.50/1M out</div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-bar"></div>
+</div></div></div>
+
+<!-- ============ SLIDE 2 ============ -->
+<div class="scaler"><div class="slide-wrap"><div class="slide" data-slide>
+  <div class="bg-pattern"></div><div class="top-accent"></div>
+  <div class="logo-davivienda">
+    <div class="logo-house"><svg viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="50" cy="15" rx="45" ry="12" fill="#FFD700"/><ellipse cx="50" cy="15" rx="25" ry="8" fill="#DAA520"/>
+      <path d="M20 35 L50 15 L80 35 L80 75 L20 75 Z" fill="#DA291C"/><path d="M15 35 L50 10 L85 35 L80 35 L50 15 L20 35 Z" fill="#B71C1C"/>
+      <ellipse cx="35" cy="50" rx="8" ry="10" fill="#1E3A8A"/><ellipse cx="65" cy="50" rx="8" ry="10" fill="#1E3A8A"/>
+      <circle cx="35" cy="48" r="3" fill="white"/><circle cx="65" cy="48" r="3" fill="white"/>
+      <ellipse cx="50" cy="68" rx="10" ry="8" fill="#FFD700"/><ellipse cx="50" cy="70" rx="6" ry="4" fill="#DAA520"/></svg></div>
+    <span class="logo-text">DAVIVIENDA</span>
+  </div>
+  <div class="progress-bar"><div class="arrow completed"></div><div class="arrow active"></div><div class="arrow"></div>
+    <div class="progress-number">2</div><div class="progress-label">Costos</div></div>
+  <div class="title-bar"><h1>La receta de 1 curso</h1></div>
+  <div class="stage">
+    <div class="dur-badge">⏱️ <b>Duración del curso: ~15 min</b> &nbsp;·&nbsp; 12 min narrados (avatar + voz) + ~3 min interactivos <span class="free">sin costo</span></div>
+    <div class="two-col">
+    <div class="col-left">
+      <div class="formula">
+        <div class="ft">Fórmula del costo</div>
+        <div class="row"><span class="op">&nbsp;</span><span class="lbl">min. avatar × 3 gen. × $0.50 <small>HeyGen</small></span></div>
+        <div class="row"><span class="op">+</span><span class="lbl">min. voz × $0.15 <small>ElevenLabs</small></span></div>
+        <div class="row"><span class="op">+</span><span class="lbl">ediciones × $0.12 <small>Claude</small></span></div>
+        <div class="row"><span class="op">+</span><span class="lbl">$0.10 <small>texto Gemini</small></span></div>
+      </div>
+      <div class="recipe">1 curso estándar = <b>3 min de avatar</b> (×3 gen.) + <b>9 min de voz</b> + <b>12 ediciones</b> + 1 texto IA</div>
+    </div>
+    <div class="col-right">
+      <table class="bd-table">
+        <thead><tr><th>Variable</th><th style="text-align:right">Cant.</th><th style="text-align:right">Costo</th></tr></thead>
+        <tbody>
+          <tr><td>🎭 Avatar (HeyGen)</td><td class="amt">3 min ×3</td><td class="amt">$4.50</td></tr>
+          <tr><td>🎙️ Voz (ElevenLabs)</td><td class="amt">9 min</td><td class="amt">$1.35</td></tr>
+          <tr><td>🤖 Ediciones (Claude)</td><td class="amt">12</td><td class="amt">$1.44</td></tr>
+          <tr><td>📝 Texto (Gemini)</td><td class="amt">1 curso</td><td class="amt">$0.10</td></tr>
+          <tr class="total"><td>Total variable</td><td class="amt"></td><td class="amt">≈ $7.40</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div></div>
+  <div class="bottom-bar"></div>
+</div></div></div>
+
+<!-- ============ SLIDE 3 ============ -->
+<div class="scaler"><div class="slide-wrap"><div class="slide" data-slide>
+  <div class="bg-pattern"></div><div class="top-accent"></div>
+  <div class="logo-davivienda">
+    <div class="logo-house"><svg viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="50" cy="15" rx="45" ry="12" fill="#FFD700"/><ellipse cx="50" cy="15" rx="25" ry="8" fill="#DAA520"/>
+      <path d="M20 35 L50 15 L80 35 L80 75 L20 75 Z" fill="#DA291C"/><path d="M15 35 L50 10 L85 35 L80 35 L50 15 L20 35 Z" fill="#B71C1C"/>
+      <ellipse cx="35" cy="50" rx="8" ry="10" fill="#1E3A8A"/><ellipse cx="65" cy="50" rx="8" ry="10" fill="#1E3A8A"/>
+      <circle cx="35" cy="48" r="3" fill="white"/><circle cx="65" cy="48" r="3" fill="white"/>
+      <ellipse cx="50" cy="68" rx="10" ry="8" fill="#FFD700"/><ellipse cx="50" cy="70" rx="6" ry="4" fill="#DAA520"/></svg></div>
+    <span class="logo-text">DAVIVIENDA</span>
+  </div>
+  <div class="progress-bar"><div class="arrow completed"></div><div class="arrow completed"></div><div class="arrow active"></div>
+    <div class="progress-number">3</div><div class="progress-label">Costos</div></div>
+  <div class="title-bar"><h1>Escala según el tamaño · palancas de ahorro</h1></div>
+  <div class="stage">
+    <div class="sec-title">Mismo modelo, <span class="red">distintas cantidades</span></div>
+    <table class="scale-table">
+      <thead><tr><th>Tamaño del curso</th><th>Avatar (×3 gen.)</th><th>Voz</th><th>Ediciones</th><th>Costo variable</th></tr></thead>
+      <tbody>
+        <tr><td>Chico · 5 recursos (~6 min)</td><td>1.5 min</td><td>4.5 min</td><td>6</td><td class="cost">≈ $3.75</td></tr>
+        <tr class="hl"><td>Estándar · 10 recursos (~12 min)</td><td>3 min</td><td>9 min</td><td>12</td><td class="cost">≈ $7.40</td></tr>
+        <tr><td>Grande · 15 recursos (~20 min)</td><td>5 min</td><td>15 min</td><td>20</td><td class="cost">≈ $12.25</td></tr>
+      </tbody>
+    </table>
+    <div class="lever-grid">
+      <div class="lever"><div class="lic">🎙️</div><div><div class="lt">Menos avatar, más voz</div>
+        <div class="ld">Cada minuto final de avatar cuesta <b>~$1.50</b> (se genera 3×). Pasarlo a voz ahorra <b>~$1.35/min</b> → la palanca más fuerte.</div></div></div>
+      <div class="lever"><div class="lic">🎯</div><div><div class="lt">Menos generaciones de avatar</div>
+        <div class="ld">Mejores prompts/seed: de ×3 a ×2 generaciones el avatar baja de $4.50 a <b>$3.00</b> → curso a ~$5.90.</div></div></div>
+    </div>
+    <div class="infra-strip">🏗️ <b>Infraestructura (fija):</b> ~$5–15 USD/mes — Firebase, Storage y Cloud Run casi siempre dentro del <b>free tier</b>. Cloud Run escala a cero: $0 cuando nadie lo usa. &nbsp;·&nbsp; 💡 <b>Curso sin avatar</b> (solo voz + slides): ~$3 en vez de $7.40.</div>
+  </div>
+  <div class="bottom-bar"></div>
+</div></div></div>
+
+</div>
+
+<script>
+// Escala cada slide 1920x1080 al ancho de su contenedor
+function fit(){
+  document.querySelectorAll('[data-slide]').forEach(function(s){
+    var w = s.parentElement.clientWidth;
+    s.style.transform = 'scale(' + (w/1920) + ')';
+  });
+}
+window.addEventListener('resize', fit);
+window.addEventListener('load', fit);
+fit();
+</script>
+</body>
+</html>
