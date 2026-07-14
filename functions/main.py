@@ -1402,11 +1402,114 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
         "areas": c.get("areas"),
         "lms_nombre": c.get("lms_nombre"),
     }
+    # Campos extra para la sección Configuración.
+    payload["industria"] = c.get("industria")
+    payload["descripcion_prompt"] = c.get("descripcion_prompt")
+    payload["email"] = c.get("email") or {}
+    payload["app_url"] = c.get("app_url")
     if ctx.is_superadmin:
         from core.tenancy import list_companies
         payload["is_superadmin"] = True
         payload["companies"] = list_companies()
     return _response(payload)
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """PUT /empresa - Guarda la configuración de la empresa activa (sección
+    Configuración del dashboard). El equipo Learning edita branding/contenido;
+    dominios de acceso y activo son solo de superadmin."""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json() or {}
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    import re as _re
+
+    def _hex(v, fallback):
+        v = str(v or "").strip()
+        return v if _re.fullmatch(r"#[0-9a-fA-F]{6}", v) else fallback
+
+    def _clean_list(v):
+        if not isinstance(v, list):
+            return None
+        out = [str(s).strip() for s in v if s and str(s).strip()]
+        return out or None
+
+    update: dict = {"updated_at": SERVER_TIMESTAMP}
+
+    nombre = str(data.get("nombre") or "").strip()
+    if nombre:
+        update["nombre"] = nombre
+
+    b = data.get("branding") or {}
+    if b:
+        branding = {}
+        if b.get("nombre_display"):
+            branding["nombre_display"] = str(b["nombre_display"]).strip()
+        if "color_primario" in b:
+            branding["color_primario"] = _hex(b.get("color_primario"), "#DA291C")
+        if "color_acento" in b:
+            branding["color_acento"] = _hex(b.get("color_acento"), "#FFD700")
+        if "logo_url" in b:
+            logo = str(b.get("logo_url") or "").strip()
+            if logo and not logo.startswith(("https://", "http://", "data:")):
+                return _error("logo_url debe ser una URL http(s) o data:")
+            branding["logo_url"] = logo or None
+        for f in ("fuente_titulos", "fuente_texto"):
+            if b.get(f):
+                branding[f] = str(b[f]).strip()
+        if branding:
+            update["branding"] = branding
+
+    for field in ("industria", "descripcion_prompt", "lms_nombre"):
+        if field in data:
+            update[field] = str(data.get(field) or "").strip() or None
+
+    if "areas" in data:
+        update["areas"] = _clean_list(data.get("areas"))
+
+    d = data.get("defaults") or {}
+    if d:
+        defaults = {}
+        for f in ("voice_id", "avatar_id"):
+            if d.get(f):
+                defaults[f] = str(d[f]).strip()
+        if "passing_score" in d:
+            try:
+                defaults["passing_score"] = max(0, min(100, int(d["passing_score"])))
+            except (ValueError, TypeError):
+                pass
+        if defaults:
+            update["defaults"] = defaults
+
+    if (data.get("email") or {}).get("from_name"):
+        update["email"] = {"from_name": str(data["email"]["from_name"]).strip()}
+
+    if "app_url" in data:
+        update["app_url"] = str(data.get("app_url") or "").strip() or None
+
+    # Campos de acceso: solo superadmin (un learning no puede sumar dominios
+    # ajenos ni desactivar su empresa por accidente).
+    if any(k in data for k in ("dominios", "learning_domains", "activo")):
+        if not ctx.is_superadmin:
+            return _error("Solo un superadmin puede modificar dominios de acceso", 403)
+        if "dominios" in data:
+            doms = _clean_list(data.get("dominios"))
+            if not doms:
+                return _error("La empresa necesita al menos un dominio")
+            update["dominios"] = [s.lower() for s in doms]
+        if "learning_domains" in data:
+            update["learning_domains"] = [s.lower() for s in (_clean_list(data.get("learning_domains")) or [])]
+        if "activo" in data:
+            update["activo"] = bool(data.get("activo"))
+
+    get_db().collection("companies").document(ctx.company_id).set(update, merge=True)
+    return _response({"ok": True, "company_id": ctx.company_id, "updated": [k for k in update if k != "updated_at"]})
 
 
 # ============== SYNC EMPRESAS (Google Sheet → Firestore) ==============

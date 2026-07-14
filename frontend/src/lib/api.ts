@@ -23,6 +23,7 @@ const API_URLS = {
   listar_usuarios: `${API_BASE}/listar_usuarios`,
   mis_solicitudes: `${API_BASE}/mis_solicitudes`,
   mi_empresa: `${API_BASE}/mi_empresa`,
+  actualizar_empresa: `${API_BASE}/actualizar_empresa`,
   // Mallas
   crear_malla: `https://crear-malla-${CLOUDRUN_SUFFIX}`,
   obtener_malla: `https://obtener-malla-${CLOUDRUN_SUFFIX}`,
@@ -354,6 +355,20 @@ export async function obtenerMiEmpresa(): Promise<import("@/lib/brand").MiEmpres
   const res = await apiFetch(API_URLS.mi_empresa);
   if (!res.ok) {
     throw new Error(`Error obteniendo empresa: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Guarda la configuración de la empresa activa (sección Configuración).
+export async function actualizarEmpresa(
+  data: Record<string, unknown>
+): Promise<{ ok: boolean; company_id: string; updated: string[] }> {
+  const res = await apiFetch(API_URLS.actualizar_empresa, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(`Error guardando configuración: ${await res.text()}`);
   }
   return res.json();
 }

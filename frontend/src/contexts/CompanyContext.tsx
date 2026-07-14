@@ -52,9 +52,6 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   const [company, setCompany] = useState<Brand>(DEFAULT_BRAND);
   const [miEmpresa, setMiEmpresa] = useState<MiEmpresa | null>(null);
   const [loading, setLoading] = useState(false);
-  // Bump para re-fetchear /mi_empresa cuando el superadmin cambia de empresa.
-  const [actingVersion, setActingVersion] = useState(0);
-
   const setActingCompany = (companyId: string) => {
     try {
       if (companyId) localStorage.setItem(ACTING_COMPANY_KEY, companyId);
@@ -63,7 +60,10 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     } catch {
       /* storage bloqueado */
     }
-    setActingVersion((v) => v + 1);
+    // Reload completo: todas las páginas tienen datos de la empresa anterior en
+    // estado (listas, mallas); recargar garantiza que todo refetchee con el
+    // header X-Company-Id nuevo.
+    window.location.reload();
   };
 
   useEffect(() => {
@@ -108,7 +108,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user, actingVersion]);
+  }, [user]);
 
   // Theming en runtime: las clases Tailwind bg-brand/text-brand leen estas vars.
   useEffect(() => {

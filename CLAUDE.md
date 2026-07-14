@@ -1266,6 +1266,17 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
 - agent-service: mismo mecanismo (header o `?company=`); `/ws/:companyId` permite cualquier
   empresa al superadmin. Agregar superadmins = editar el array en el doc (cache 5 min).
 
+### Configuración por empresa (dashboard, jul 2026)
+- Sección **Configuración** (primer ítem del sidebar, `/dashboard/configuracion`): edita el doc
+  de la empresa activa — branding/look&feel (colores con picker + preview, logo, fuentes),
+  identidad para la IA (industria, descripcion_prompt), áreas, LMS, voz/avatar/passing_score,
+  remitente de emails, app_url. Endpoint `actualizar_empresa` (PUT, rol learning).
+- Dominios de acceso y `activo`: SOLO superadmin (el backend rechaza 403 si no).
+- Al guardar (y al cambiar de empresa en el selector) se hace `window.location.reload()` para
+  que todas las páginas refetcheen con la empresa nueva.
+- ⚠️ El sync del sheet SOLO CREA empresas nuevas (no actualiza existentes) para no pisar lo
+  editado en Configuración. Editar una empresa existente = dashboard, no el sheet.
+
 ### Empresas desde Google Sheet (jul 2026)
 - Fuente: Sheet "Empresas AI Learning Studio" (ID en `functions/.env` COMPANIES_SHEET_ID,
   dueño jeanpierre@alkemy.org). El cron `sync_companies_sheet` (cada 15 min) baja el CSV

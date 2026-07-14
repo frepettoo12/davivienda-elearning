@@ -80,6 +80,11 @@ export interface MiEmpresa {
   defaults?: { voice_id?: string; avatar_id?: string; passing_score?: number };
   areas?: string[];
   lms_nombre?: string;
+  // Campos de la sección Configuración
+  industria?: string;
+  descripcion_prompt?: string;
+  email?: { from_name?: string };
+  app_url?: string;
 }
 
 export function brandFromMiEmpresa(e: MiEmpresa): Brand {

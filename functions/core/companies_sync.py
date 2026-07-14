@@ -94,22 +94,29 @@ def fetch_sheet_companies(sheet_id: str) -> dict[str, dict]:
 
 
 def sync_companies_from_sheet(db, sheet_id: str) -> dict:
-    """Upsertea las empresas del sheet en Firestore. Devuelve resumen."""
+    """Da de alta las empresas NUEVAS del sheet en Firestore. Devuelve resumen.
+
+    Solo crea docs que no existen: las empresas existentes se administran desde
+    la sección Configuración del dashboard (si el sync también actualizara,
+    cada corrida pisaría lo editado ahí)."""
     companies = fetch_sheet_companies(sheet_id)
     if not companies:
         logger.warning("Sheet sin filas de empresa válidas — no se sincroniza nada.")
-        return {"synced": 0, "created": [], "updated": []}
+        return {"synced": 0, "created": [], "skipped": []}
 
-    created, updated = [], []
+    created, skipped = [], []
     for cid, data in companies.items():
         ref = db.collection("companies").document(cid)
-        existed = ref.get().exists
+        if ref.get().exists:
+            skipped.append(cid)
+            continue
         data["updated_at"] = SERVER_TIMESTAMP
         data["synced_from_sheet"] = True
-        ref.set(data, merge=True)
-        (updated if existed else created).append(cid)
+        ref.set(data)
+        created.append(cid)
 
     if created:
         logger.info("Empresas NUEVAS desde el sheet: %s", created)
-    logger.info("Sync de empresas OK: %d (nuevas: %d)", len(companies), len(created))
-    return {"synced": len(companies), "created": created, "updated": updated}
+    logger.info("Sync de empresas OK: %d filas (nuevas: %d, existentes sin tocar: %d)",
+                len(companies), len(created), len(skipped))
+    return {"synced": len(companies), "created": created, "skipped": skipped}
