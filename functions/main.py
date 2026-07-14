@@ -64,7 +64,9 @@ _bucket = None
 def get_db():
     global _app, _db
     if _app is None:
-        _app = firebase_admin.initialize_app()
+        # core.tenancy puede haber inicializado la app default antes (decorador
+        # de auth corre primero) — reutilizarla en vez de re-inicializar.
+        _app = firebase_admin.get_app() if firebase_admin._apps else firebase_admin.initialize_app()
     if _db is None:
         _db = firestore.client()
     return _db
@@ -73,7 +75,7 @@ def get_db():
 def get_bucket():
     global _app, _bucket
     if _app is None:
-        _app = firebase_admin.initialize_app()
+        _app = firebase_admin.get_app() if firebase_admin._apps else firebase_admin.initialize_app()
     if _bucket is None:
         _bucket = storage.bucket("davivienda-elearning-assets")
     return _bucket

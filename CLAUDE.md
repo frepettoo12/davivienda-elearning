@@ -1263,9 +1263,15 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
 2. Si usan Google Workspace propio: agregar dominio a authorized domains de Firebase Auth.
 3. Smoke test: login → solicitud → malla → contenido (agente con su marca) → SCORM con su shell.
 
-### Pendientes de rollout (ops, no código)
-- [ ] Correr `scripts/seed_companies.py` (crea `companies/davivienda`).
-- [ ] Deploy de functions (`firebase deploy --only functions`) con `AUTH_ENFORCE=false`.
-- [ ] Verificar en logs que el 100% de requests llegan con token → setear `AUTH_ENFORCE=true` (+ mismo env en agent-service).
-- [ ] Correr `scripts/backfill_company_id.py` (primero `--dry-run`).
-- [ ] Deploy de reglas (`firebase deploy --only firestore:rules,storage`) recién después del enforce.
+### Rollout (estado jul 2026)
+- [x] Seed corrido: `companies/davivienda` existe en Firestore.
+- [x] Backfill corrido: 4 mallas + 4 solicitudes + 22 jobs con `company_id=davivienda`.
+- [x] Functions deployadas (21, incluye `mi_empresa`) con `AUTH_ENFORCE=false` (modo suave). Smoke tests OK.
+- [x] Reglas de **Firestore** cerradas y deployadas. Las de **Storage NO se pueden deployar**: el
+  proyecto no tiene Firebase Storage configurado (usa un bucket GCS plano con ACLs — las reglas
+  no aplican; `firebase deploy` con target `storage` FALLA, usar `--only functions,firestore:rules`).
+- [ ] **Falta**: verificar en logs que el 100% de requests llegan con token → setear
+  `AUTH_ENFORCE=true` en las functions (env) y en el agent-service, y redeployar.
+- ⚠️ Gotcha aprendido: `get_db()`/`get_bucket()` de main.py deben chequear `firebase_admin._apps`
+  antes de `initialize_app()` — el decorador de auth (core/tenancy) puede inicializar la app
+  default primero y la doble init tira ValueError (500 en todos los endpoints que tocan db).
