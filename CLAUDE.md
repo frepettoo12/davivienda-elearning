@@ -1263,6 +1263,16 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
 2. Si usan Google Workspace propio: agregar dominio a authorized domains de Firebase Auth.
 3. Smoke test: login → solicitud → malla → contenido (agente con su marca) → SCORM con su shell.
 
+### Deploy / URLs (jul 2026)
+- **Frontend en producción**: https://davivienda-elearning.web.app (Firebase Hosting +
+  web frameworks → backend SSR `firebase-frameworks-davivienda-elearning` en us-central1).
+  Deploy: `firebase deploy --only hosting` (buildea el Next; frenar antes el `next dev` local
+  o usar `NEXT_DISTDIR`). Env del build salen de `frontend/.env.local`.
+- Backend: `https://us-central1-davivienda-elearning.cloudfunctions.net/...`
+- Limitación: el **agent-service** (editor IA, composición de video) sigue siendo local
+  (`NEXT_PUBLIC_AGENT_URL` default localhost:8090) → esas features no andan desde la URL
+  pública hasta deployarlo a Cloud Run (Fase 1 del Modo Agente, requiere API key Anthropic).
+
 ### Rollout (estado jul 2026)
 - [x] Seed corrido: `companies/davivienda` existe en Firestore.
 - [x] Backfill corrido: 4 mallas + 4 solicitudes + 22 jobs con `company_id=davivienda`.

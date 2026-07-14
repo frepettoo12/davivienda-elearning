@@ -42,3 +42,6 @@ next-env.d.ts
 
 # 2da instancia dev (solicitante)
 .next-solicitante/
+
+# build de deploy (firebase hosting)
+.next-build/

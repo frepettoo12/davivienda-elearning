@@ -40,3 +40,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Firebase Hosting (artefactos de deploy)
+.firebase/
