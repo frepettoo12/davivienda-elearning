@@ -46,12 +46,28 @@ const API_URLS = {
 // Todas las llamadas mandan el Firebase ID token; el backend deriva la empresa
 // del dominio del email. getIdToken() cachea y refresca solo.
 
+// Empresa "activa" elegida por un superadmin en el selector del dashboard.
+// El backend solo la respeta si el usuario es superadmin.
+export const ACTING_COMPANY_KEY = "actingCompany";
+
+export function actingCompanyId(): string {
+  try {
+    return localStorage.getItem(ACTING_COMPANY_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
 export async function authHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;
   if (!user) return {};
   try {
     const token = await user.getIdToken();
-    return { Authorization: `Bearer ${token}` };
+    const acting = actingCompanyId();
+    return {
+      Authorization: `Bearer ${token}`,
+      ...(acting ? { "X-Company-Id": acting } : {}),
+    };
   } catch {
     return {};
   }

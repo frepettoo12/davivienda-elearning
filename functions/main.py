@@ -25,7 +25,7 @@ from typing import Any
 
 import firebase_admin
 from firebase_admin import firestore, storage
-from firebase_functions import https_fn, options
+from firebase_functions import https_fn, options, scheduler_fn
 from firebase_functions.params import SecretParam
 from google.cloud.firestore import SERVER_TIMESTAMP
 
@@ -1391,7 +1391,7 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
         })
 
     c = ctx.company
-    return _response({
+    payload = {
         "company_id": ctx.company_id,
         "nombre": c.get("nombre"),
         "rol": ctx.rol,
@@ -1401,7 +1401,33 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
         "defaults": c.get("defaults") or {},
         "areas": c.get("areas"),
         "lms_nombre": c.get("lms_nombre"),
-    })
+    }
+    if ctx.is_superadmin:
+        from core.tenancy import list_companies
+        payload["is_superadmin"] = True
+        payload["companies"] = list_companies()
+    return _response(payload)
+
+
+# ============== SYNC EMPRESAS (Google Sheet → Firestore) ==============
+
+@scheduler_fn.on_schedule(schedule="*/15 * * * *", timeout_sec=120)
+def sync_companies_sheet(event: scheduler_fn.ScheduledEvent) -> None:
+    """Cada 15 min: lee el Google Sheet de empresas y upsertea companies/{id}.
+    Nuevas filas en el sheet = empresas dadas de alta automáticamente."""
+    import os
+    from core.companies_sync import sync_companies_from_sheet
+
+    sheet_id = os.environ.get("COMPANIES_SHEET_ID", "").strip()
+    if not sheet_id:
+        print("COMPANIES_SHEET_ID no configurado — sync omitido")
+        return
+    try:
+        resumen = sync_companies_from_sheet(get_db(), sheet_id)
+        print(f"sync_companies_sheet: {resumen}")
+    except Exception as e:
+        # No relanzar: evitar reintentos agresivos del scheduler por un sheet mal compartido.
+        print(f"sync_companies_sheet ERROR: {e}")
 
 
 # ============== HEALTH ==============

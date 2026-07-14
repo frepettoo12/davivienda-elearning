@@ -119,7 +119,8 @@ app.use(
   "/ws/:companyId",
   requireAuth,
   (req, res, next) => {
-    if (req.company?.id !== req.params.companyId) return res.sendStatus(403);
+    // Superadmin puede previsualizar cualquier empresa; el resto solo la propia.
+    if (req.company?.id !== req.params.companyId && !req.company?.isSuperadmin) return res.sendStatus(403);
     express.static(resolve(WORKSPACES_ROOT, safeKey(req.params.companyId)), {
       etag: false,
       lastModified: false,

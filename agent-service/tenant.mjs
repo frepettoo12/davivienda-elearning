@@ -92,12 +92,40 @@ async function companyByDomain(domain) {
   return company;
 }
 
-export async function companyFromToken(bearer) {
+let _superadmins = { emails: new Set(), exp: 0 };
+async function superadminEmails() {
+  if (_superadmins.exp > Date.now()) return _superadmins.emails;
+  let emails = new Set();
+  try {
+    if (ensureApp()) {
+      const snap = await getFirestore().collection("config").doc("platform").get();
+      if (snap.exists) {
+        emails = new Set((snap.data().superadmin_emails || []).map((e) => String(e).trim().toLowerCase()));
+      }
+    }
+  } catch (e) {
+    console.error("Error leyendo superadmins:", e?.message || e);
+  }
+  _superadmins = { emails, exp: Date.now() + TTL };
+  return emails;
+}
+
+export async function companyFromToken(bearer, actingCompanyId) {
   if (!ensureApp()) return null;
   const decoded = await getAuth().verifyIdToken(bearer);
   const email = (decoded.email || "").toLowerCase();
   if (!email) return null;
   const domain = email.split("@").pop();
+
+  // Superadmin: puede actuar como cualquier empresa (header X-Company-Id o ?company=).
+  const isSuperadmin = (await superadminEmails()).has(email);
+  if (isSuperadmin) {
+    let company = null;
+    if (actingCompanyId) company = await companyById(String(actingCompanyId).toLowerCase());
+    if (!company) company = (await companyByDomain(domain)) || (await companyById(DEFAULT_COMPANY_ID));
+    return company ? { ...company, isSuperadmin: true } : null;
+  }
+
   let company = await companyByDomain(domain);
   if (!company) {
     // Dominio no registrado: mapeo explícito users/{uid}.company_id (lo persiste
@@ -119,16 +147,18 @@ function extractToken(req) {
   return "";
 }
 
-// Middleware Express: setea req.company (doc de la empresa del caller).
+// Middleware Express: setea req.company (doc de la empresa del caller; si es
+// superadmin, la empresa "activa" del header X-Company-Id o ?company=).
 export function requireAuth(req, res, next) {
   const token = extractToken(req);
+  const acting = req.headers["x-company-id"] || req.query?.company || "";
   if (!token) {
     if (ENFORCE) return res.status(401).json({ error: "Falta token" });
     console.warn(`AUTH soft-mode: request sin token (${req.method} ${req.path}) — contexto ${DEFAULT_COMPANY_ID}`);
     req.company = DEFAULT_COMPANY;
     return next();
   }
-  companyFromToken(token)
+  companyFromToken(token, acting)
     .then((company) => {
       if (!company) {
         if (ENFORCE) return res.status(403).json({ error: "Empresa no habilitada" });

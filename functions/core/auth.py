@@ -27,6 +27,7 @@ from core.tenancy import (
     DEFAULT_COMPANY_ID,
     RequestContext,
     get_company,
+    get_superadmin_emails,
     resolve_company_by_domain,
     resolve_user_company,
 )
@@ -80,6 +81,22 @@ def get_request_context(req: https_fn.Request, allow_unassigned: bool = False) -
     if not company_id:
         # Dominio no registrado: mapeo explícito persistido (users/{uid}).
         company_id, company = resolve_user_company(uid)
+
+    # Superadmin (config/platform.superadmin_emails): acceso cross-tenant.
+    # Puede "actuar como" cualquier empresa vía header X-Company-Id (lo manda el
+    # selector del frontend); sin header usa su empresa propia o davivienda.
+    if email in get_superadmin_emails():
+        acting = (req.headers.get("X-Company-Id") or "").strip().lower()
+        if acting:
+            acting_company = get_company(acting)
+            if acting_company:
+                company_id, company = acting, acting_company
+        if not company_id or not company:
+            company_id, company = DEFAULT_COMPANY_ID, get_company(DEFAULT_COMPANY_ID)
+        return RequestContext(
+            uid=uid, email=email, company_id=company_id, company=company,
+            rol="learning", is_superadmin=True,
+        )
 
     if not company_id or not company:
         if allow_unassigned:

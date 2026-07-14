@@ -64,6 +64,9 @@ export interface MiEmpresa {
   company_id: string;
   nombre: string;
   rol: "learning" | "solicitante";
+  // Superadmin de plataforma: puede actuar como cualquier empresa.
+  is_superadmin?: boolean;
+  companies?: Array<{ id: string; nombre: string; color_primario?: string }>;
   dominios?: string[];
   learning_domains?: string[];
   branding?: {

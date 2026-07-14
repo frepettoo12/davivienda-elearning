@@ -61,6 +61,7 @@ class RequestContext:
     company_id: str | None
     company: dict | None
     rol: str  # "learning" | "solicitante"
+    is_superadmin: bool = False
 
 
 def _db():
@@ -138,6 +139,47 @@ def _companies_seeded() -> bool:
         exists = False
     _seeded = (time.time() + _TTL, exists)
     return exists
+
+
+_superadmins: tuple[float, set] | None = None
+
+
+def get_superadmin_emails() -> set[str]:
+    """Emails con acceso cross-tenant (config/platform.superadmin_emails), cacheado."""
+    global _superadmins
+    if _superadmins and _superadmins[0] > time.time():
+        return _superadmins[1]
+    emails: set[str] = set()
+    try:
+        snap = _db().collection("config").document("platform").get()
+        if snap.exists:
+            emails = {
+                str(e).strip().lower()
+                for e in (snap.to_dict() or {}).get("superadmin_emails", [])
+                if e
+            }
+    except Exception:
+        pass
+    _superadmins = (time.time() + _TTL, emails)
+    return emails
+
+
+def list_companies() -> list[dict]:
+    """Listado liviano de empresas activas (para el selector de superadmin)."""
+    out = []
+    try:
+        for snap in _db().collection("companies").stream():
+            d = snap.to_dict() or {}
+            if not d.get("activo", True):
+                continue
+            out.append({
+                "id": snap.id,
+                "nombre": d.get("nombre") or snap.id,
+                "color_primario": (d.get("branding") or {}).get("color_primario"),
+            })
+    except Exception:
+        pass
+    return sorted(out, key=lambda c: c["nombre"].lower())
 
 
 def resolve_user_company(uid: str) -> tuple[str | None, dict | None]:

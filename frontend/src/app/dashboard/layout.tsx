@@ -74,7 +74,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, role, loading, signOut } = useAuth();
-  const { company } = useCompany();
+  const { company, miEmpresa, setActingCompany } = useCompany();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -119,6 +119,26 @@ export default function DashboardLayout({
             <p className="text-xs text-gray-500">{company.nombre}</p>
           </div>
         </div>
+
+        {/* Selector de empresa (solo superadmin de plataforma) */}
+        {miEmpresa?.is_superadmin && (
+          <div className="border-b px-4 py-3">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+              Empresa activa
+            </label>
+            <select
+              value={company.companyId}
+              onChange={(e) => setActingCompany(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {(miEmpresa.companies || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-4">

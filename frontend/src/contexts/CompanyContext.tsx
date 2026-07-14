@@ -17,7 +17,12 @@ import {
   ReactNode,
 } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { AGENT_URL, currentIdToken, obtenerMiEmpresa } from "@/lib/api";
+import {
+  ACTING_COMPANY_KEY,
+  AGENT_URL,
+  currentIdToken,
+  obtenerMiEmpresa,
+} from "@/lib/api";
 import {
   Brand,
   DEFAULT_BRAND,
@@ -29,12 +34,15 @@ interface CompanyContextType {
   company: Brand;
   miEmpresa: MiEmpresa | null;
   loading: boolean;
+  // Superadmin: cambiar la empresa activa (persiste y recarga la config).
+  setActingCompany: (companyId: string) => void;
 }
 
 const CompanyContext = createContext<CompanyContextType>({
   company: DEFAULT_BRAND,
   miEmpresa: null,
   loading: false,
+  setActingCompany: () => {},
 });
 
 const CACHE_KEY = "companyBrand";
@@ -44,6 +52,19 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   const [company, setCompany] = useState<Brand>(DEFAULT_BRAND);
   const [miEmpresa, setMiEmpresa] = useState<MiEmpresa | null>(null);
   const [loading, setLoading] = useState(false);
+  // Bump para re-fetchear /mi_empresa cuando el superadmin cambia de empresa.
+  const [actingVersion, setActingVersion] = useState(0);
+
+  const setActingCompany = (companyId: string) => {
+    try {
+      if (companyId) localStorage.setItem(ACTING_COMPANY_KEY, companyId);
+      else localStorage.removeItem(ACTING_COMPANY_KEY);
+      localStorage.removeItem(CACHE_KEY); // el cache es de la empresa anterior
+    } catch {
+      /* storage bloqueado */
+    }
+    setActingVersion((v) => v + 1);
+  };
 
   useEffect(() => {
     if (!user) {
@@ -87,7 +108,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, actingVersion]);
 
   // Theming en runtime: las clases Tailwind bg-brand/text-brand leen estas vars.
   useEffect(() => {
@@ -98,7 +119,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, [company]);
 
   return (
-    <CompanyContext.Provider value={{ company, miEmpresa, loading }}>
+    <CompanyContext.Provider value={{ company, miEmpresa, loading, setActingCompany }}>
       {children}
     </CompanyContext.Provider>
   );
