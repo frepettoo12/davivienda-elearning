@@ -1264,10 +1264,17 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
 3. Smoke test: login → solicitud → malla → contenido (agente con su marca) → SCORM con su shell.
 
 ### Deploy / URLs (jul 2026)
-- **Frontend en producción**: https://davivienda-elearning.web.app (Firebase Hosting +
-  web frameworks → backend SSR `firebase-frameworks-davivienda-elearning` en us-central1).
+- **Frontend en producción**: https://ai-learning-studio.web.app (nombre genérico multi-company;
+  Firebase Hosting site `ai-learning-studio` + web frameworks → backend SSR en us-central1).
+  El site viejo `davivienda-elearning.web.app` está DESHABILITADO (hosting:disable).
   Deploy: `firebase deploy --only hosting` (buildea el Next; frenar antes el `next dev` local
   o usar `NEXT_DISTDIR`). Env del build salen de `frontend/.env.local`.
+  `ai-learning-studio.web.app` está agregado a los authorized domains de Firebase Auth
+  (via API identitytoolkit con ADC + header `x-goog-user-project`).
+- **Empresas por Excel**: `scripts/companies.xlsx` es la fuente para dar de alta/editar
+  empresas (una fila por empresa; listas separadas por coma). Flujo:
+  editar Excel → `python3 scripts/seed_companies.py --excel scripts/companies.xlsx [--dry-run]`.
+  Regenerar template: `--write-template`. El seed nunca pisa un `scorm.shell_html` ya guardado.
 - Backend: `https://us-central1-davivienda-elearning.cloudfunctions.net/...`
 - Limitación: el **agent-service** (editor IA, composición de video) sigue siendo local
   (`NEXT_PUBLIC_AGENT_URL` default localhost:8090) → esas features no andan desde la URL

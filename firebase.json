@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "ai-learning-studio",
     "source": "frontend",
     "frameworksBackend": {
       "region": "us-central1"
