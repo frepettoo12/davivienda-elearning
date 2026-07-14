@@ -114,13 +114,16 @@ export default function DashboardLayout({
       <aside className="flex w-64 flex-col border-r bg-white">
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 border-b px-6">
-          {/* img plano (no next/image): el logo puede ser una URL externa del tenant */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={company.logoUrl || "/davivienda-logo.png"}
-            alt={company.nombre}
-            className="h-10 w-10 object-contain"
-          />
+          {/* img plano (no next/image): el logo puede ser una URL externa del tenant.
+              Sin logo cargado → tile con la inicial en el color de marca. */}
+          {company.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={company.logoUrl} alt={company.nombre} className="h-10 w-10 object-contain" />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand text-lg font-bold text-white">
+              {company.nombre.charAt(0).toUpperCase()}
+            </div>
+          )}
           <div>
             <h1 className="font-semibold text-gray-900">E-Learning</h1>
             <p className="text-xs text-gray-500">{company.nombre}</p>

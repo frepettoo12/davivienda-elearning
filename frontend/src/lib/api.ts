@@ -359,6 +359,19 @@ export async function obtenerMiEmpresa(): Promise<import("@/lib/brand").MiEmpres
   return res.json();
 }
 
+// Sube el logo de la empresa activa (dataURL) y devuelve la URL pública.
+export async function subirLogo(dataUrl: string): Promise<string> {
+  const res = await apiFetch(`${API_BASE}/subir_logo`, {
+    method: "POST",
+    body: JSON.stringify({ data_url: dataUrl }),
+  });
+  if (!res.ok) {
+    throw new Error(`Error subiendo logo: ${await res.text()}`);
+  }
+  const d = await res.json();
+  return d.logo_url as string;
+}
+
 // Guarda la configuración de la empresa activa (sección Configuración).
 export async function actualizarEmpresa(
   data: Record<string, unknown>

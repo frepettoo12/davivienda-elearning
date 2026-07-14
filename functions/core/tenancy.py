@@ -87,7 +87,10 @@ def get_company(company_id: str) -> dict | None:
         snap = _db().collection("companies").document(company_id).get()
         data = snap.to_dict() if snap.exists else None
     except Exception:
-        data = None
+        # Falla transitoria: último valor conocido (o fallback davivienda) sin cachear.
+        if hit:
+            return hit[1]
+        return dict(FALLBACK_COMPANY) if company_id == DEFAULT_COMPANY_ID else None
     if data is None and company_id == DEFAULT_COMPANY_ID:
         data = dict(FALLBACK_COMPANY)
     _company_cache[company_id] = (time.time() + _TTL, data)
@@ -110,7 +113,8 @@ def resolve_company_by_domain(domain: str) -> tuple[str | None, dict | None]:
             .stream()
         )
     except Exception:
-        docs = []
+        # Falla transitoria: no cachear un "no existe" falso.
+        return (None, None) if not hit else (hit[1], get_company(hit[1]) if hit[1] else None)
     if docs:
         cid, data = docs[0].id, docs[0].to_dict()
         _domain_cache[domain] = (time.time() + _TTL, cid)
@@ -145,21 +149,23 @@ _superadmins: tuple[float, set] | None = None
 
 
 def get_superadmin_emails() -> set[str]:
-    """Emails con acceso cross-tenant (config/platform.superadmin_emails), cacheado."""
+    """Emails con acceso cross-tenant (config/platform.superadmin_emails), cacheado.
+
+    Solo cachea lecturas exitosas: si Firestore falla no se guarda un set vacío
+    (eso degradaría al superadmin a usuario común por _TTL segundos)."""
     global _superadmins
     if _superadmins and _superadmins[0] > time.time():
         return _superadmins[1]
-    emails: set[str] = set()
     try:
         snap = _db().collection("config").document("platform").get()
-        if snap.exists:
-            emails = {
-                str(e).strip().lower()
-                for e in (snap.to_dict() or {}).get("superadmin_emails", [])
-                if e
-            }
+        emails = {
+            str(e).strip().lower()
+            for e in ((snap.to_dict() or {}).get("superadmin_emails", []) if snap.exists else [])
+            if e
+        }
     except Exception:
-        pass
+        # Falla transitoria: usar el último valor conocido sin renovar el TTL.
+        return _superadmins[1] if _superadmins else set()
     _superadmins = (time.time() + _TTL, emails)
     return emails
 

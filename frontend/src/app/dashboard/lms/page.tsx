@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { listarSolicitudes, obtenerMalla, SolicitudListItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { useCompany } from "@/contexts/CompanyContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 export default function LmsPage() {
+  const { company } = useCompany();
+  const lms = company.lmsNombre || "LMS";
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
@@ -43,7 +46,7 @@ export default function LmsPage() {
 
   const handleUpload = async () => {
     setUploading(true);
-    // Simular subida (TODO: implementar integración real con Territorium)
+    // Simular subida (TODO: implementar integración real con el LMS)
     await new Promise(resolve => setTimeout(resolve, 2000));
     setUploading(false);
     setUploaded(true);
@@ -62,7 +65,7 @@ export default function LmsPage() {
       <div className="p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">LMS</h1>
-          <p className="text-gray-500">Sube el curso a Territorium LMS</p>
+          <p className="text-gray-500">Sube el curso a {lms}</p>
         </div>
 
         {enProcesoList.length > 0 ? (
@@ -118,7 +121,7 @@ export default function LmsPage() {
           </Button>
         </div>
         <h1 className="text-2xl font-bold text-gray-900 truncate">{cursoNombre || "Subir a LMS"}</h1>
-        <p className="text-sm text-gray-500">Subir a LMS · Territorium - Davivienda</p>
+        <p className="text-sm text-gray-500">Subir a LMS · {lms} - {company.nombre}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -129,18 +132,18 @@ export default function LmsPage() {
               <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
-              Territorium LMS
+              {lms}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
-                  T
+                  {lms.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="font-medium">Territorium</p>
-                  <p className="text-sm text-gray-500">LMS Corporativo Davivienda</p>
+                  <p className="font-medium">{lms}</p>
+                  <p className="text-sm text-gray-500">LMS Corporativo {company.nombre}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -161,26 +164,26 @@ export default function LmsPage() {
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Curso subido exitosamente a Territorium
+                  Curso subido exitosamente a {lms}
                 </div>
                 <Button variant="outline" className="w-full">
                   <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
-                  Abrir en Territorium
+                  Abrir en {lms}
                 </Button>
               </div>
             ) : uploading ? (
               <div className="flex items-center gap-2 p-4 bg-blue-50 rounded-lg text-blue-700">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-                Subiendo curso a Territorium...
+                Subiendo curso a {lms}...
               </div>
             ) : (
               <Button onClick={handleUpload} className="w-full bg-red-600 hover:bg-red-700">
                 <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                Subir a Territorium
+                Subir a {lms}
               </Button>
             )}
           </CardContent>

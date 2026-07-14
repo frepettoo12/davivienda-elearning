@@ -8,9 +8,9 @@
  * Al guardar se recarga la página para que el theming nuevo aplique en todo.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCompany } from "@/contexts/CompanyContext";
-import { actualizarEmpresa } from "@/lib/api";
+import { actualizarEmpresa, subirLogo } from "@/lib/api";
 import { ALLOWED_FONTS } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,34 @@ export default function ConfiguracionPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setError("El logo no puede superar 2 MB");
+      return;
+    }
+    setUploadingLogo(true);
+    setError(null);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      // Sube a Storage y persiste branding.logo_url en el backend.
+      const url = await subirLogo(dataUrl);
+      set("logo_url", url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error subiendo el logo");
+    } finally {
+      setUploadingLogo(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   // Cargar el formulario desde la config actual de la empresa activa.
   useEffect(() => {
@@ -181,15 +209,30 @@ export default function ConfiguracionPage() {
             </div>
           </div>
           <div className="md:col-span-2">
-            <label className={labelCls}>Logo (URL https)</label>
+            <label className={labelCls}>Logo</label>
             <div className="flex items-center gap-3">
-              <input className={inputCls} value={form.logo_url} placeholder="https://…/logo.png" onChange={(e) => set("logo_url", e.target.value)} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={(e) => handleLogoFile(e.target.files?.[0])}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={uploadingLogo}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadingLogo ? "Subiendo…" : "📁 Subir logo"}
+              </Button>
+              <input className={inputCls} value={form.logo_url} placeholder="o pegá una URL https://…/logo.png" onChange={(e) => set("logo_url", e.target.value)} />
               {form.logo_url && /^(https?:|data:)/.test(form.logo_url) && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={form.logo_url} alt="logo" className="h-10 w-16 rounded border object-contain" />
               )}
             </div>
-            <p className={hintCls}>Se usa en el dashboard y en el contenido generado (recursos, videos, SCORM)</p>
+            <p className={hintCls}>PNG/JPG/WEBP/SVG hasta 2 MB. Se usa arriba a la izquierda del dashboard y en el contenido generado (recursos, videos, SCORM)</p>
           </div>
           <div>
             <label className={labelCls}>Fuente de títulos</label>

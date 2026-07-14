@@ -93,7 +93,10 @@ export function brandFromMiEmpresa(e: MiEmpresa): Brand {
     companyId: e.company_id,
     nombre: e.nombre || DEFAULT_BRAND.nombre,
     nombreDisplay: b.nombre_display || `${e.nombre} E-Learning`,
-    logoUrl: b.logo_url ?? null,
+    // Davivienda sin logo cargado usa el asset local histórico; el resto de las
+    // empresas sin logo muestran la inicial (tile) en los layouts.
+    logoUrl:
+      b.logo_url ?? (e.company_id === "davivienda" ? "/davivienda-logo.png" : null),
     colorPrimario: b.color_primario || DEFAULT_BRAND.colorPrimario,
     colorSecundario: b.color_acento || DEFAULT_BRAND.colorSecundario,
     fuenteTitulos: safeFont(b.fuente_titulos, DEFAULT_BRAND.fuenteTitulos),

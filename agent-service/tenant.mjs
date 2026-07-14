@@ -95,19 +95,19 @@ async function companyByDomain(domain) {
 let _superadmins = { emails: new Set(), exp: 0 };
 async function superadminEmails() {
   if (_superadmins.exp > Date.now()) return _superadmins.emails;
-  let emails = new Set();
   try {
-    if (ensureApp()) {
-      const snap = await getFirestore().collection("config").doc("platform").get();
-      if (snap.exists) {
-        emails = new Set((snap.data().superadmin_emails || []).map((e) => String(e).trim().toLowerCase()));
-      }
-    }
+    if (!ensureApp()) return _superadmins.emails;
+    const snap = await getFirestore().collection("config").doc("platform").get();
+    const emails = snap.exists
+      ? new Set((snap.data().superadmin_emails || []).map((e) => String(e).trim().toLowerCase()))
+      : new Set();
+    _superadmins = { emails, exp: Date.now() + TTL };
+    return emails;
   } catch (e) {
+    // Falla transitoria: último valor conocido, sin cachear el error.
     console.error("Error leyendo superadmins:", e?.message || e);
+    return _superadmins.emails;
   }
-  _superadmins = { emails, exp: Date.now() + TTL };
-  return emails;
 }
 
 export async function companyFromToken(bearer, actingCompanyId) {

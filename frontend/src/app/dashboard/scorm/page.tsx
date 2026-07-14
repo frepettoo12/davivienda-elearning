@@ -93,7 +93,8 @@ function ShellEditor({ sessionKey, seedHtml, onHtmlChange }: {
 }
 
 export default function ScormPage() {
-  const { company } = useCompany();
+  const { company, miEmpresa } = useCompany();
+  const passingScore = miEmpresa?.defaults?.passing_score ?? 70;
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
@@ -181,7 +182,7 @@ export default function ScormPage() {
       const result = await empaquetarScorm({
         malla_id: mallaId,
         curso_nombre: cursoNombre,
-        passing_score: 70,
+        passing_score: passingScore,
         recursos,
         shell_html: shellHtml || undefined,
       });
@@ -207,7 +208,7 @@ export default function ScormPage() {
     const block =
       `/* === DAVIVIENDA:COURSE (no editar) === */\n` +
       `window.RESOURCES = ${JSON.stringify(resources)};\n` +
-      `window.MASTERY = 70;\n` +
+      `window.MASTERY = ${passingScore};\n` +
       `window.COURSE_TITLE = ${JSON.stringify(cursoNombre || "Curso")};\n` +
       `/* === END:COURSE === */`;
     const full = shellHtml.replace(

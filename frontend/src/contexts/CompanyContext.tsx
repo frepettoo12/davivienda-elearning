@@ -116,6 +116,16 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--brand-primary", company.colorPrimario);
     root.style.setProperty("--brand-secondary", company.colorSecundario);
     document.title = company.nombreDisplay;
+    // Favicon con el logo del tenant (si tiene uno cargado por URL).
+    if (company.logoUrl && /^(https?:|data:)/.test(company.logoUrl)) {
+      let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.href = company.logoUrl;
+    }
   }, [company]);
 
   return (

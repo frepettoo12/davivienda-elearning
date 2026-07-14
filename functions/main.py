@@ -705,10 +705,15 @@ def generar_audio_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_
     except Exception as e:
         return _error(f"Invalid request: {e}")
 
+    # Voz: la del request si vino explícita; si no, la default de la empresa.
+    voice_id = audio_req.voice_id
+    if "voice_id" not in (data or {}):
+        voice_id = ((ctx.company or {}).get("defaults") or {}).get("voice_id") or voice_id
+
     # Generar audio
     audio_bytes, error = generar_audio(
         texto=audio_req.texto,
-        voice_id=audio_req.voice_id,
+        voice_id=voice_id,
         stability=audio_req.stability,
         similarity_boost=audio_req.similarity_boost,
         style=audio_req.style,
@@ -756,10 +761,15 @@ def generar_video_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_
     except Exception as e:
         return _error(f"Invalid request: {e}")
 
+    # Avatar: el del request si vino explícito; si no, el default de la empresa.
+    avatar_id = video_req.avatar_id
+    if "avatar_id" not in (data or {}):
+        avatar_id = ((ctx.company or {}).get("defaults") or {}).get("avatar_id") or avatar_id
+
     # Iniciar generación en HeyGen
     heygen_video_id, error = crear_video_heygen(
         audio_url=video_req.audio_url,
-        avatar_id=video_req.avatar_id,
+        avatar_id=avatar_id,
         dimension=video_req.dimension,
     )
 
@@ -1510,6 +1520,56 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
 
     get_db().collection("companies").document(ctx.company_id).set(update, merge=True)
     return _response({"ok": True, "company_id": ctx.company_id, "updated": [k for k in update if k != "updated_at"]})
+
+
+# ============== LOGO DE EMPRESA ==============
+
+_LOGO_MIMES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+}
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def subir_logo(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /logo - Sube el logo de la empresa activa (dataURL base64) a Storage,
+    lo hace público y lo persiste en companies/{id}.branding.logo_url."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json() or {}
+        data_url = str(data.get("data_url") or "")
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    import base64
+    import re as _re
+
+    m = _re.match(r"^data:(image/[a-zA-Z+.-]+);base64,(.+)$", data_url, _re.S)
+    if not m or m.group(1) not in _LOGO_MIMES:
+        return _error("Formato inválido: subí un PNG, JPG, WEBP o SVG")
+    try:
+        raw = base64.b64decode(m.group(2))
+    except Exception:
+        return _error("Base64 inválido")
+    if len(raw) > 2 * 1024 * 1024:
+        return _error("El logo no puede superar 2 MB")
+
+    ext = _LOGO_MIMES[m.group(1)]
+    blob_path = f"{_storage_prefix(ctx)}branding/logo_{uuid.uuid4().hex[:8]}.{ext}"
+    blob = get_bucket().blob(blob_path)
+    blob.upload_from_string(raw, content_type=m.group(1))
+    blob.make_public()
+
+    get_db().collection("companies").document(ctx.company_id).set(
+        {"branding": {"logo_url": blob.public_url}, "updated_at": SERVER_TIMESTAMP},
+        merge=True,
+    )
+    return _response({"ok": True, "logo_url": blob.public_url})
 
 
 # ============== SYNC EMPRESAS (Google Sheet → Firestore) ==============
