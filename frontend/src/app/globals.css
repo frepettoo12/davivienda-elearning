@@ -46,10 +46,18 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Marca por empresa (multi-tenant): habilita bg-brand, text-brand, etc.
+     CompanyProvider pisa --brand-* en runtime con los colores del tenant. */
+  --color-brand: var(--brand-primary);
+  --color-brand-secondary: var(--brand-secondary);
 }
 
 :root {
-  /* Davivienda Brand Colors */
+  /* Marca por empresa — default Davivienda; CompanyProvider las actualiza */
+  --brand-primary: #DA291C;
+  --brand-secondary: #FFD700;
+
+  /* Davivienda Brand Colors (legacy) */
   --davi-red: #DA291C;
   --davi-yellow: #FFD700;
   --davi-dark: #1a1a2e;

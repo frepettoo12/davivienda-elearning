@@ -9,7 +9,7 @@
  * por recurso en localStorage (para no perder lo tipeado al navegar/recargar).
  */
 import { createContext, useContext, useRef, useState, useCallback, ReactNode } from "react";
-import { AGENT_URL } from "@/lib/api";
+import { AGENT_URL, authHeaders } from "@/lib/api";
 
 export type AgentEv = { id: number; cls: string; icon: string; text: string };
 
@@ -87,7 +87,7 @@ export function AgentJobsProvider({ children }: { children: ReactNode }) {
       try {
         const resp = await fetch(`${AGENT_URL}/agent/edit`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeaders()) },
           body: JSON.stringify({ instruction: instr, model: opts.model, sessionKey: key, seedHtml: opts.seedHtml, images: opts.images || [] }),
         });
         if (!resp.body) throw new Error("Sin stream de respuesta");

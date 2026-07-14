@@ -39,8 +39,16 @@ from core.services.malla_service import generar_malla, iterar_malla
 from core.services.guion_service import generar_guiones_batch
 from core.generators.audio import generar_audio
 from core.generators.video import crear_video_heygen, verificar_video_heygen
-from core.generators.scorm import empaquetar_scorm, DEFAULT_SHELL
+from core.generators.scorm import empaquetar_scorm, DEFAULT_SHELL, default_shell_for
 from core import notifications
+from core.auth import require_auth
+from core.tenancy import (
+    DEFAULT_COMPANY_ID,
+    RequestContext,
+    assign_user_company,
+    get_company,
+    owner_company_id,
+)
 from schemas import (
     SolicitudCreate, MallaIterar, AudioRequest, VideoRequest,
     SolicitudCreateRequest, SolicitudUpdateRequest, ComentarioCreate,
@@ -97,6 +105,20 @@ def _error(message: str, status: int = 400) -> https_fn.Response:
     return _response({"error": message}, status)
 
 
+def _tenant_mismatch(doc_data: dict | None, ctx: RequestContext) -> bool:
+    """True si el doc pertenece a otra empresa (se responde 404, no 403, para
+    no filtrar existencia). Docs legacy sin company_id = davivienda."""
+    return owner_company_id(doc_data) != ctx.company_id
+
+
+def _storage_prefix(ctx: RequestContext) -> str:
+    """Prefijo de Storage por tenant. Davivienda mantiene las rutas legacy
+    (audio/, video/, scorm/) para no romper URLs ya persistidas."""
+    if ctx.company_id in (None, DEFAULT_COMPANY_ID):
+        return ""
+    return f"companies/{ctx.company_id}/"
+
+
 def _strip_markdown_json(raw_text: str) -> str:
     """Limpia bloques markdown ```json ... ``` y deja solo JSON."""
     text = (raw_text or "").strip()
@@ -114,7 +136,8 @@ def _strip_markdown_json(raw_text: str) -> str:
     cors=cors_options,
     secrets=[OPENAI_API_KEY]
 )
-def crear_malla(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /mallas - Crear una nueva malla curricular."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -136,6 +159,7 @@ def crear_malla(req: https_fn.Request) -> https_fn.Response:
         temas=solicitud.temas,
         requiere_eval=solicitud.requiere_eval,
         documentacion=solicitud.documentacion or "",
+        empresa=ctx.company,
     )
 
     if error:
@@ -147,6 +171,7 @@ def crear_malla(req: https_fn.Request) -> https_fn.Response:
     # Guardar en Firestore
     doc_ref = get_db().collection("mallas").document()
     doc_data = {
+        "company_id": ctx.company_id,
         "solicitud": solicitud.model_dump(),
         "version": 1,
         "malla": malla,
@@ -170,7 +195,8 @@ def crear_malla(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def obtener_malla(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def obtener_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET /mallas/{id} - Obtener una malla por ID."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
@@ -191,12 +217,15 @@ def obtener_malla(req: https_fn.Request) -> https_fn.Response:
         return _error("Malla not found", 404)
 
     data = doc.to_dict()
+    if _tenant_mismatch(data, ctx):
+        return _error("Malla not found", 404)
     data["id"] = doc.id
     return _response(data)
 
 
 @https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
-def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def iterar_malla_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """PUT /mallas/{id} - Iterar malla con feedback."""
     if req.method not in ["PUT", "POST"]:
         return _error("Method not allowed", 405)
@@ -225,6 +254,8 @@ def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
         return _error("Malla not found", 404)
 
     doc_data = doc.to_dict()
+    if _tenant_mismatch(doc_data, ctx):
+        return _error("Malla not found", 404)
     malla_actual = doc_data.get("malla", [])
 
     # Regenerar con feedback
@@ -232,6 +263,7 @@ def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
         malla_actual,
         iterar_req.feedback,
         course_type=doc_data.get("solicitud", {}).get("course_type", "compliance"),
+        empresa=ctx.company,
     )
 
     if error:
@@ -265,7 +297,8 @@ def iterar_malla_endpoint(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def guardar_guion(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def guardar_guion(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """PUT /guion - Persistir el contenido de un guión (HTML editado por el agente,
     URLs de audio/video, etc.) dentro del array `guiones` de la malla.
     Body: { malla_id, guion_id, contenido: {...campos a mergear} }"""
@@ -289,6 +322,8 @@ def guardar_guion(req: https_fn.Request) -> https_fn.Response:
         return _error("Malla not found", 404)
 
     md = doc.to_dict()
+    if _tenant_mismatch(md, ctx):
+        return _error("Malla not found", 404)
     guiones = md.get("guiones", [])
     found = False
     for g in guiones:
@@ -304,7 +339,8 @@ def guardar_guion(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def guardar_malla(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def guardar_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """PUT /mallas/{id} - Guardar la malla editada manualmente (sobreescribe el array)."""
     if req.method not in ["PUT", "POST"]:
         return _error("Method not allowed", 405)
@@ -327,7 +363,10 @@ def guardar_malla(req: https_fn.Request) -> https_fn.Response:
         return _error("Falta 'malla' (lista de recursos)")
 
     doc_ref = get_db().collection("mallas").document(malla_id)
-    if not doc_ref.get().exists:
+    doc = doc_ref.get()
+    if not doc.exists:
+        return _error("Malla not found", 404)
+    if _tenant_mismatch(doc.to_dict(), ctx):
         return _error("Malla not found", 404)
 
     # Reindexar ids secuenciales y normalizar duracion_min a entero.
@@ -359,7 +398,8 @@ def guardar_malla(req: https_fn.Request) -> https_fn.Response:
     timeout_sec=540,
     memory=options.MemoryOption.GB_1,
 )
-def generar_guiones_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def generar_guiones_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /mallas/{id}/guiones - Generar guiones para toda la malla."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -380,6 +420,8 @@ def generar_guiones_endpoint(req: https_fn.Request) -> https_fn.Response:
         return _error("Malla not found", 404)
 
     doc_data = doc.to_dict()
+    if _tenant_mismatch(doc_data, ctx):
+        return _error("Malla not found", 404)
     malla = doc_data.get("malla", [])
     solicitud = doc_data.get("solicitud", {})
 
@@ -391,7 +433,7 @@ def generar_guiones_endpoint(req: https_fn.Request) -> https_fn.Response:
         "objetivo": solicitud.get("objetivo", ""),
     }
 
-    guiones, errores = generar_guiones_batch(malla, contexto)
+    guiones, errores = generar_guiones_batch(malla, contexto, empresa=ctx.company)
 
     # Guardar guiones
     get_db().collection("mallas").document(malla_id).update({
@@ -409,7 +451,8 @@ def generar_guiones_endpoint(req: https_fn.Request) -> https_fn.Response:
 # ============== ITERAR GUION ==============
 
 @https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
-def iterar_guion_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def iterar_guion_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /guiones/iterar - Iterar un guión específico con feedback de IA."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -533,6 +576,8 @@ Reglas:
         return _error("Malla not found", 404)
 
     doc_data = doc.to_dict()
+    if _tenant_mismatch(doc_data, ctx):
+        return _error("Malla not found", 404)
     guiones = doc_data.get("guiones", [])
 
     # Encontrar el guión a iterar
@@ -646,7 +691,8 @@ Responde SOLO con el JSON, sin texto adicional."""
 # ============== AUDIO ==============
 
 @https_fn.on_request(cors=cors_options, secrets=[ELEVENLABS_API_KEY])
-def generar_audio_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def generar_audio_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /audio - Generar audio con ElevenLabs."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -671,13 +717,14 @@ def generar_audio_endpoint(req: https_fn.Request) -> https_fn.Response:
 
     # Subir a Cloud Storage
     job_id = str(uuid.uuid4())
-    blob_path = f"audio/{job_id}.mp3"
+    blob_path = f"{_storage_prefix(ctx)}audio/{job_id}.mp3"
     blob = get_bucket().blob(blob_path)
     blob.upload_from_string(audio_bytes, content_type="audio/mpeg")
     blob.make_public()
 
     # Guardar job
     get_db().collection("jobs").document(job_id).set({
+        "company_id": ctx.company_id,
         "type": "audio",
         "status": "completed",
         "result_url": blob.public_url,
@@ -695,7 +742,8 @@ def generar_audio_endpoint(req: https_fn.Request) -> https_fn.Response:
 # ============== VIDEO ==============
 
 @https_fn.on_request(cors=cors_options, secrets=[HEYGEN_API_KEY])
-def generar_video_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def generar_video_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /video - Iniciar generación de video con HeyGen."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -719,6 +767,7 @@ def generar_video_endpoint(req: https_fn.Request) -> https_fn.Response:
     # Crear job para tracking
     job_id = str(uuid.uuid4())
     get_db().collection("jobs").document(job_id).set({
+        "company_id": ctx.company_id,
         "type": "video",
         "status": "processing",
         "heygen_video_id": heygen_video_id,
@@ -734,7 +783,8 @@ def generar_video_endpoint(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options, secrets=[HEYGEN_API_KEY])
-def obtener_job(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def obtener_job(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET /jobs/{id} - Obtener estado de un job."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
@@ -755,6 +805,8 @@ def obtener_job(req: https_fn.Request) -> https_fn.Response:
         return _error("Job not found", 404)
 
     job_data = doc.to_dict()
+    if _tenant_mismatch(job_data, ctx):
+        return _error("Job not found", 404)
 
     # Si es video en proceso, verificar estado en HeyGen
     if job_data.get("type") == "video" and job_data.get("status") == "processing":
@@ -769,7 +821,7 @@ def obtener_job(req: https_fn.Request) -> https_fn.Response:
                 if video_url:
                     response = requests.get(video_url)
                     if response.status_code == 200:
-                        blob_path = f"video/{job_id}.mp4"
+                        blob_path = f"{_storage_prefix(ctx)}video/{job_id}.mp4"
                         blob = get_bucket().blob(blob_path)
                         blob.upload_from_string(response.content, content_type="video/mp4")
                         blob.make_public()
@@ -799,7 +851,8 @@ def obtener_job(req: https_fn.Request) -> https_fn.Response:
 # ============== SOLICITUDES ==============
 
 @https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
-def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
+@require_auth(allow_unassigned=True)
+def crear_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /solicitudes - Crear una nueva solicitud de curso."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -810,9 +863,22 @@ def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
     except Exception as e:
         return _error(f"Invalid request: {e}")
 
+    # Resolver empresa: la del usuario, o (externos sin empresa aún) la del body.
+    company_id = ctx.company_id
+    company = ctx.company
+    if not company_id:
+        company_id = (data.get("company_id") or DEFAULT_COMPANY_ID).strip()
+        company = get_company(company_id)
+        if not company or not company.get("activo", True):
+            return _error("Empresa inválida", 400)
+        # Persistir el mapeo para requests futuros (mis-solicitudes, comentarios).
+        if ctx.uid:
+            assign_user_company(ctx.uid, ctx.email, company_id)
+
     # Crear documento en Firestore
     doc_ref = get_db().collection("solicitudes").document()
     doc_data = {
+        "company_id": company_id,
         "solicitante": solicitud_req.solicitante.model_dump(),
         "curso": solicitud_req.curso.model_dump(),
         "status": SolicitudStatus.PENDIENTE.value,
@@ -830,6 +896,7 @@ def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
         solicitud_req.curso.nombre,
         solicitud_req.solicitante.nombre,
         solicitud_req.solicitante.area,
+        company=company,
     )
 
     return _response({
@@ -840,7 +907,8 @@ def crear_solicitud(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def listar_solicitudes(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def listar_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET /solicitudes - Listar solicitudes con filtros opcionales."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
@@ -866,6 +934,8 @@ def listar_solicitudes(req: https_fn.Request) -> https_fn.Response:
         data = doc.to_dict()
 
         # Filtros en memoria para evitar problemas de índices compuestos
+        if _tenant_mismatch(data, ctx):
+            continue
         if status_filter and data.get("status") != status_filter:
             continue
         if asignado_filter and data.get("asignado_a") != asignado_filter:
@@ -907,7 +977,8 @@ def listar_solicitudes(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def obtener_solicitud(req: https_fn.Request) -> https_fn.Response:
+@require_auth()
+def obtener_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET /solicitudes/{id} - Obtener una solicitud con sus comentarios."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
@@ -928,6 +999,12 @@ def obtener_solicitud(req: https_fn.Request) -> https_fn.Response:
         return _error("Solicitud not found", 404)
 
     data = doc.to_dict()
+    if _tenant_mismatch(data, ctx):
+        return _error("Solicitud not found", 404)
+    # Un solicitante solo puede ver sus propias solicitudes.
+    if ctx.rol == "solicitante" and ctx.email:
+        if (data.get("solicitante", {}).get("email") or "").lower() != ctx.email:
+            return _error("Solicitud not found", 404)
     data["id"] = doc.id
 
     # Obtener comentarios
@@ -946,7 +1023,8 @@ def obtener_solicitud(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
-def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def actualizar_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """PUT /solicitudes/{id} - Actualizar estado, asignación o prioridad."""
     if req.method not in ["PUT", "POST"]:
         return _error("Method not allowed", 405)
@@ -975,6 +1053,8 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
         return _error("Solicitud not found", 404)
 
     prev = doc.to_dict() or {}
+    if _tenant_mismatch(prev, ctx):
+        return _error("Solicitud not found", 404)
     curso_nombre = prev.get("curso", {}).get("nombre", "tu curso")
     solicitante_email = prev.get("solicitante", {}).get("email", "")
 
@@ -994,9 +1074,9 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
 
     # Notificaciones (best-effort)
     if update_req.status is not None and update_req.status.value != prev.get("status") and solicitante_email:
-        notifications.notify_cambio_estado(solicitante_email, solicitud_id, curso_nombre, update_req.status.value)
+        notifications.notify_cambio_estado(solicitante_email, solicitud_id, curso_nombre, update_req.status.value, company=ctx.company)
     if update_req.asignado_a and update_req.asignado_a != prev.get("asignado_a"):
-        notifications.notify_asignacion(update_req.asignado_a, solicitud_id, curso_nombre)
+        notifications.notify_asignacion(update_req.asignado_a, solicitud_id, curso_nombre, company=ctx.company)
 
     return _response({
         "id": solicitud_id,
@@ -1006,7 +1086,8 @@ def actualizar_solicitud(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
-def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
+@require_auth()
+def agregar_comentario(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /solicitudes/{id}/comentarios - Agregar un comentario a una solicitud."""
     if req.method != "POST":
         return _error("Method not allowed", 405)
@@ -1037,6 +1118,12 @@ def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
     doc = get_db().collection("solicitudes").document(solicitud_id).get()
     if not doc.exists:
         return _error("Solicitud not found", 404)
+    _sol_data = doc.to_dict() or {}
+    if _tenant_mismatch(_sol_data, ctx):
+        return _error("Solicitud not found", 404)
+    if ctx.rol == "solicitante" and ctx.email:
+        if (_sol_data.get("solicitante", {}).get("email") or "").lower() != ctx.email:
+            return _error("Solicitud not found", 404)
 
     # Crear comentario en subcolección
     comentario_ref = get_db().collection("solicitudes").document(solicitud_id).collection("comentarios").document()
@@ -1061,6 +1148,7 @@ def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
         notifications.notify_mencion(
             [str(m) for m in menciones if m],
             autor_nombre, solicitud_id, curso_nombre, comentario_req.texto,
+            company=ctx.company,
         )
 
     return _response({
@@ -1071,12 +1159,15 @@ def agregar_comentario(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=cors_options)
-def mis_solicitudes(req: https_fn.Request) -> https_fn.Response:
-    """GET /mis-solicitudes - Listar solicitudes de un solicitante por email."""
+@require_auth(allow_unassigned=True)
+def mis_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """GET /mis-solicitudes - Listar solicitudes del solicitante autenticado."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
 
-    email = req.args.get("email")
+    # El email sale del token; el query param queda solo como fallback del
+    # modo suave (requests legacy sin token).
+    email = ctx.email or req.args.get("email")
     if not email:
         return _error("Missing email parameter")
 
@@ -1127,18 +1218,25 @@ def mis_solicitudes(req: https_fn.Request) -> https_fn.Response:
 # ============== USUARIOS ==============
 
 @https_fn.on_request(cors=cors_options)
-def listar_usuarios(req: https_fn.Request) -> https_fn.Response:
-    """GET /usuarios - Lista usuarios de Firebase Auth (para autocompletar @menciones)."""
+@require_auth(roles={"learning"})
+def listar_usuarios(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """GET /usuarios - Lista usuarios de Firebase Auth de la empresa del caller
+    (para autocompletar @menciones)."""
     if req.method != "GET":
         return _error("Method not allowed", 405)
 
     get_db()  # asegura firebase_admin.initialize_app()
+
+    # Solo usuarios con dominio de la empresa (no exponer usuarios de otros tenants).
+    dominios = set((ctx.company or {}).get("dominios") or [])
 
     from firebase_admin import auth as fb_auth
     usuarios = []
     try:
         for u in fb_auth.list_users().iterate_all():
             if not u.email:
+                continue
+            if dominios and u.email.split("@")[-1].lower() not in dominios:
                 continue
             usuarios.append({
                 "uid": u.uid,
@@ -1155,13 +1253,18 @@ def listar_usuarios(req: https_fn.Request) -> https_fn.Response:
 # ============== SCORM SHELL (plantilla del paquete) ==============
 
 @https_fn.on_request(cors=cors_options)
-def scorm_shell(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def scorm_shell(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET → {default, global}. PUT {scope:'global'|'course', shell_html, malla_id?} → guarda.
-    Permite editar la plantilla (envoltorio) del paquete SCORM: global o por curso."""
+    Permite editar la plantilla (envoltorio) del paquete SCORM. El scope "global"
+    es por empresa (companies/{id}.scorm.shell_html); config/scorm queda como
+    fallback legacy de solo lectura para davivienda."""
     if req.method == "GET":
-        doc = get_db().collection("config").document("scorm").get()
-        global_shell = (doc.to_dict() or {}).get("shell_html", "") if doc.exists else ""
-        return _response({"default": DEFAULT_SHELL, "global": global_shell})
+        company_shell = ((ctx.company or {}).get("scorm") or {}).get("shell_html", "") or ""
+        if not company_shell and ctx.company_id == DEFAULT_COMPANY_ID:
+            doc = get_db().collection("config").document("scorm").get()
+            company_shell = (doc.to_dict() or {}).get("shell_html", "") if doc.exists else ""
+        return _response({"default": default_shell_for(ctx.company), "global": company_shell})
 
     if req.method in ["PUT", "POST"]:
         try:
@@ -1172,16 +1275,26 @@ def scorm_shell(req: https_fn.Request) -> https_fn.Response:
             return _error(f"Invalid request: {e}")
 
         if scope == "global":
-            get_db().collection("config").document("scorm").set(
-                {"shell_html": shell_html, "updated_at": SERVER_TIMESTAMP}, merge=True
+            get_db().collection("companies").document(ctx.company_id).set(
+                {"scorm": {"shell_html": shell_html}, "updated_at": SERVER_TIMESTAMP},
+                merge=True,
             )
+            # Compat: davivienda también actualiza el doc legacy que otras
+            # instancias todavía puedan leer.
+            if ctx.company_id == DEFAULT_COMPANY_ID:
+                get_db().collection("config").document("scorm").set(
+                    {"shell_html": shell_html, "updated_at": SERVER_TIMESTAMP}, merge=True
+                )
             return _response({"ok": True, "scope": "global"})
         if scope == "course":
             malla_id = data.get("malla_id")
             if not malla_id:
                 return _error("Falta 'malla_id'")
             ref = get_db().collection("mallas").document(malla_id)
-            if not ref.get().exists:
+            snap = ref.get()
+            if not snap.exists:
+                return _error("Malla not found", 404)
+            if _tenant_mismatch(snap.to_dict(), ctx):
                 return _error("Malla not found", 404)
             ref.update({"scorm_shell_html": shell_html, "updated_at": SERVER_TIMESTAMP})
             return _response({"ok": True, "scope": "course", "malla_id": malla_id})
@@ -1197,7 +1310,8 @@ def scorm_shell(req: https_fn.Request) -> https_fn.Response:
     memory=options.MemoryOption.GB_1,
     timeout_sec=540,
 )
-def empaquetar_scorm_endpoint(req: https_fn.Request) -> https_fn.Response:
+@require_auth(roles={"learning"})
+def empaquetar_scorm_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /scorm - Empaqueta el curso en un SCORM 1.2 (single-SCO) y lo sube a Storage.
 
     Body: { malla_id, curso_nombre, passing_score, recursos: [{id, orden, titulo,
@@ -1215,13 +1329,33 @@ def empaquetar_scorm_endpoint(req: https_fn.Request) -> https_fn.Response:
     if not payload or not payload.get("recursos"):
         return _error("Falta 'recursos'")
 
+    # Resolución de shell por tenant: payload (lo manda el frontend) →
+    # malla.scorm_shell_html → company.scorm.shell_html → (davivienda: legacy
+    # config/scorm) → default brandeado. Nunca heredar el shell de otra empresa.
+    if not payload.get("shell_html"):
+        shell = ""
+        malla_id_payload = payload.get("malla_id")
+        if malla_id_payload:
+            snap = get_db().collection("mallas").document(malla_id_payload).get()
+            if snap.exists:
+                md = snap.to_dict() or {}
+                if _tenant_mismatch(md, ctx):
+                    return _error("Malla not found", 404)
+                shell = md.get("scorm_shell_html", "") or ""
+        if not shell:
+            shell = ((ctx.company or {}).get("scorm") or {}).get("shell_html", "") or ""
+        if not shell and ctx.company_id == DEFAULT_COMPANY_ID:
+            doc = get_db().collection("config").document("scorm").get()
+            shell = (doc.to_dict() or {}).get("shell_html", "") if doc.exists else ""
+        payload["shell_html"] = shell or default_shell_for(ctx.company)
+
     try:
-        zip_bytes = empaquetar_scorm(payload)
+        zip_bytes = empaquetar_scorm(payload, company=ctx.company)
     except Exception as e:
         return _error(f"Error empaquetando SCORM: {e}", 500)
 
     malla_id = payload.get("malla_id") or "curso"
-    blob_path = f"scorm/{malla_id}/SCORM.zip"
+    blob_path = f"{_storage_prefix(ctx)}scorm/{malla_id}/SCORM.zip"
     blob = get_bucket().blob(blob_path)
     blob.upload_from_string(zip_bytes, content_type="application/zip")
     blob.make_public()
@@ -1231,6 +1365,40 @@ def empaquetar_scorm_endpoint(req: https_fn.Request) -> https_fn.Response:
         "download_url": blob.public_url,
         "size": len(zip_bytes),
         "recursos": len(payload.get("recursos", [])),
+    })
+
+
+# ============== MI EMPRESA (multi-tenant) ==============
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(allow_unassigned=True)
+def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """GET /mi_empresa - Config de la empresa del usuario autenticado.
+
+    El frontend la usa para theming (colores, logo, nombre) y para derivar el rol.
+    Usuarios sin empresa asignada (gmail antes de su 1ª solicitud) reciben
+    company_id null y rol solicitante."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+
+    if not ctx.company_id or not ctx.company:
+        return _response({
+            "company_id": None,
+            "nombre": None,
+            "rol": "solicitante",
+        })
+
+    c = ctx.company
+    return _response({
+        "company_id": ctx.company_id,
+        "nombre": c.get("nombre"),
+        "rol": ctx.rol,
+        "dominios": c.get("dominios") or [],
+        "learning_domains": c.get("learning_domains") or [],
+        "branding": c.get("branding") or {},
+        "defaults": c.get("defaults") or {},
+        "areas": c.get("areas"),
+        "lms_nombre": c.get("lms_nombre"),
     })
 
 

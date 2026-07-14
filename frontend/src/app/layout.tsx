@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat, Open_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { CompanyProvider } from "@/contexts/CompanyContext";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -15,8 +16,9 @@ const openSans = Open_Sans({
   weight: ["400", "500", "600"],
 });
 
+// Título genérico: el título real por empresa lo setea CompanyProvider en runtime.
 export const metadata: Metadata = {
-  title: "Davivienda E-Learning",
+  title: "E-Learning Platform",
   description: "Plataforma de generación de cursos e-learning",
 };
 
@@ -31,7 +33,9 @@ export default function RootLayout({
       className={`${montserrat.variable} ${openSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <CompanyProvider>{children}</CompanyProvider>
+        </AuthProvider>
       </body>
     </html>
   );

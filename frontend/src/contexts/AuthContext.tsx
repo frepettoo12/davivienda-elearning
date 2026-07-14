@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
+import { obtenerMiEmpresa } from "@/lib/api";
 
 type UserRole = "learning" | "solicitante" | null;
 
@@ -22,7 +23,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Dominios permitidos para Learning
+// Fallback legacy: si /mi_empresa no responde (endpoint aún no deployado, red),
+// el gate de Learning cae a esta lista. La fuente de verdad multi-tenant es el
+// backend (companies/{id}.learning_domains vía GET /mi_empresa).
 const LEARNING_DOMAINS = ["davivienda.com", "alkemy.org"];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -65,14 +68,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signInWithPopup(auth, googleProvider);
       const email = result.user.email;
       if (email) {
-        const domain = email.split("@")[1];
-        if (LEARNING_DOMAINS.includes(domain)) {
+        // Gate multi-tenant: el backend resuelve la empresa por dominio y
+        // devuelve el rol. Si el endpoint no está disponible, fallback legacy
+        // por lista de dominios.
+        let allowed: boolean;
+        try {
+          const empresa = await obtenerMiEmpresa();
+          allowed = empresa.rol === "learning" && Boolean(empresa.company_id);
+        } catch {
+          allowed = LEARNING_DOMAINS.includes(email.split("@")[1]);
+        }
+        if (allowed) {
           setRole("learning");
         } else {
-          // Dominio no permitido para Learning
+          // Sin empresa habilitada para Learning
           localStorage.removeItem("userRole");
           await firebaseSignOut(auth);
-          throw new Error("Email no autorizado. Solo dominios: " + LEARNING_DOMAINS.join(", "));
+          throw new Error(
+            "Tu cuenta no pertenece a una empresa habilitada para Learning. Ingresá con tu cuenta corporativa."
+          );
         }
       }
     } catch (error) {

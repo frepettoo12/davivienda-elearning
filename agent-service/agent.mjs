@@ -13,9 +13,20 @@ const CHROME = process.platform === "darwin"
 // (mismo layout, imagen ~4x más liviana = menos tokens/cupo en la verificación).
 const SHOT = `--headless --disable-gpu --force-device-scale-factor=0.5`;
 
-export const VERIFY_INSTRUCTIONS = `
-Estás editando un proyecto de e-learning HTML/CSS/JS para Davivienda.
-Marca: rojo primario #DA291C, amarillo #FFD700. Tipografías Montserrat/Open Sans.
+// Instrucciones del agente parametrizadas por la marca del tenant.
+// Sin brand (null) usa Davivienda, el comportamiento pre-multi-tenant.
+export function buildVerifyInstructions(brand) {
+  const b = brand || {
+    nombre: "Davivienda",
+    colorPrimario: "#DA291C",
+    colorSecundario: "#FFD700",
+    fuenteTitulos: "Montserrat",
+    fuenteTexto: "Open Sans",
+    logoUrl: null,
+  };
+  return `
+Estás editando un proyecto de e-learning HTML/CSS/JS para ${b.nombre}.
+Marca: color primario ${b.colorPrimario}, acento ${b.colorSecundario}. Tipografías ${b.fuenteTitulos}/${b.fuenteTexto}.${b.logoUrl ? `\nLogo de la empresa disponible en: ${b.logoUrl}` : ""}
 
 REGLA DE VERIFICACIÓN (esto es lo que te diferencia de un editor común):
 Verificá renderizando, PERO con criterio para no gastar de más:
@@ -35,6 +46,10 @@ TOPE DE COSTO: máximo 2 rondas de verificación (render → corrección). Si de
 
 Al final, resumí en 2-3 líneas qué cambiaste y por qué.
 `.trim();
+}
+
+// Compat: instrucciones legacy (Davivienda). Preferir buildVerifyInstructions(brand).
+export const VERIFY_INSTRUCTIONS = buildVerifyInstructions(null);
 
 /**
  * @param {object} p
@@ -42,10 +57,11 @@ Al final, resumí en 2-3 líneas qué cambiaste y por qué.
  * @param {string} p.cwd          Directorio del proyecto
  * @param {string} [p.model]      Modelo (default claude-sonnet-4-6)
  * @param {string} [p.resume]     sessionId para continuar una conversación previa
+ * @param {object} [p.brand]      Marca del tenant ({nombre, colorPrimario, ...})
  * @param {(e:object)=>void} onEvent  Recibe eventos normalizados
  * @returns {Promise<{sessionId?:string, costUsd:number, toolCalls:number}>}
  */
-export async function runAgent({ instruction, cwd, model = "claude-sonnet-4-6", resume }, onEvent) {
+export async function runAgent({ instruction, cwd, model = "claude-sonnet-4-6", resume, brand }, onEvent) {
   let sessionId, costUsd = 0, toolCalls = 0;
 
   for await (const msg of query({
@@ -53,7 +69,7 @@ export async function runAgent({ instruction, cwd, model = "claude-sonnet-4-6", 
     options: {
       cwd,
       model,
-      systemPrompt: { type: "preset", preset: "claude_code", append: VERIFY_INSTRUCTIONS },
+      systemPrompt: { type: "preset", preset: "claude_code", append: buildVerifyInstructions(brand) },
       permissionMode: "bypassPermissions",
       disallowedTools: ["WebFetch", "WebSearch", "Bash(rm -rf /*)", "Bash(sudo *)"],
       settingSources: [],

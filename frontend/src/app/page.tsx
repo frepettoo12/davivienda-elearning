@@ -60,7 +60,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-      {/* Logo Davivienda */}
+      {/* Logo (neutro: pre-login no se conoce la empresa) */}
       <div className="mb-8 flex flex-col items-center">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-red-600">
           <svg viewBox="0 0 24 24" className="h-10 w-10 text-white" fill="currentColor">
@@ -69,7 +69,7 @@ export default function LoginPage() {
           </svg>
         </div>
         <h1 className="text-2xl font-bold text-gray-900">E-Learning Platform</h1>
-        <p className="text-gray-500">Davivienda</p>
+        <p className="text-gray-500">Generación de cursos con IA</p>
       </div>
 
       <div className="grid w-full max-w-4xl gap-6 md:grid-cols-2">
@@ -122,7 +122,7 @@ export default function LoginPage() {
               )}
             </Button>
             <p className="text-center text-xs text-gray-500">
-              Solo dominios @davivienda.com y @alkemy.org
+              Ingresá con tu cuenta corporativa
             </p>
           </CardContent>
         </Card>
@@ -183,7 +183,7 @@ export default function LoginPage() {
       )}
 
       <p className="mt-8 text-center text-sm text-gray-400">
-        Davivienda E-Learning Platform v2.0
+        E-Learning Platform v2.0
       </p>
     </div>
   );

@@ -2,7 +2,15 @@
  * API Client for Firebase Cloud Functions
  */
 
-const API_BASE = "https://us-central1-davivienda-elearning.cloudfunctions.net";
+import { auth } from "@/lib/firebase";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "https://us-central1-davivienda-elearning.cloudfunctions.net";
+
+// Las funciones gen-2 exponen además URLs Cloud Run con un sufijo compartido.
+const CLOUDRUN_SUFFIX =
+  process.env.NEXT_PUBLIC_CLOUDRUN_SUFFIX || "elrtzny3ba-uc.a.run.app";
 
 // API URLs
 const API_URLS = {
@@ -14,23 +22,64 @@ const API_URLS = {
   agregar_comentario: `${API_BASE}/agregar_comentario`,
   listar_usuarios: `${API_BASE}/listar_usuarios`,
   mis_solicitudes: `${API_BASE}/mis_solicitudes`,
+  mi_empresa: `${API_BASE}/mi_empresa`,
   // Mallas
-  crear_malla: "https://crear-malla-elrtzny3ba-uc.a.run.app",
-  obtener_malla: "https://obtener-malla-elrtzny3ba-uc.a.run.app",
-  iterar_malla: "https://iterar-malla-endpoint-elrtzny3ba-uc.a.run.app",
+  crear_malla: `https://crear-malla-${CLOUDRUN_SUFFIX}`,
+  obtener_malla: `https://obtener-malla-${CLOUDRUN_SUFFIX}`,
+  iterar_malla: `https://iterar-malla-endpoint-${CLOUDRUN_SUFFIX}`,
   guardar_malla: `${API_BASE}/guardar_malla`,
   guardar_guion: `${API_BASE}/guardar_guion`,
-  generar_guiones: "https://generar-guiones-endpoint-elrtzny3ba-uc.a.run.app",
+  generar_guiones: `https://generar-guiones-endpoint-${CLOUDRUN_SUFFIX}`,
+  iterar_guion: `${API_BASE}/iterar_guion_endpoint`,
   // Audio/Video
-  generar_audio: "https://generar-audio-endpoint-elrtzny3ba-uc.a.run.app",
-  generar_video: "https://generar-video-endpoint-elrtzny3ba-uc.a.run.app",
-  obtener_job: "https://obtener-job-elrtzny3ba-uc.a.run.app",
+  generar_audio: `https://generar-audio-endpoint-${CLOUDRUN_SUFFIX}`,
+  generar_video: `https://generar-video-endpoint-${CLOUDRUN_SUFFIX}`,
+  obtener_job: `https://obtener-job-${CLOUDRUN_SUFFIX}`,
   // Health
-  health: "https://health-elrtzny3ba-uc.a.run.app",
+  health: `https://health-${CLOUDRUN_SUFFIX}`,
   // SCORM. En local apuntar al emulador con NEXT_PUBLIC_FUNCTIONS_EMULATOR
   // (ej: http://127.0.0.1:5001/davivienda-elearning/us-central1)
   empaquetar_scorm: `${process.env.NEXT_PUBLIC_FUNCTIONS_EMULATOR || API_BASE}/empaquetar_scorm_endpoint`,
 };
+
+// ── Auth (multi-tenant) ────────────────────────────────────────────────────
+// Todas las llamadas mandan el Firebase ID token; el backend deriva la empresa
+// del dominio del email. getIdToken() cachea y refresca solo.
+
+export async function authHeaders(): Promise<Record<string, string>> {
+  const user = auth.currentUser;
+  if (!user) return {};
+  try {
+    const token = await user.getIdToken();
+    return { Authorization: `Bearer ${token}` };
+  } catch {
+    return {};
+  }
+}
+
+// ID token para URLs que no pueden mandar headers (iframes de preview del
+// agent-service: ?auth=). Vacío si no hay usuario.
+export async function currentIdToken(): Promise<string> {
+  try {
+    return (await auth.currentUser?.getIdToken()) || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function apiFetch(
+  url: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(await authHeaders()),
+      ...((init.headers as Record<string, string>) || {}),
+    },
+  });
+}
 
 export interface ScormRecurso {
   id: number;
@@ -44,7 +93,7 @@ export interface ScormRecurso {
 }
 
 export async function obtenerScormShell(): Promise<{ default: string; global: string }> {
-  const res = await fetch(`${API_BASE}/scorm_shell`);
+  const res = await apiFetch(`${API_BASE}/scorm_shell`);
   if (!res.ok) throw new Error("Error obteniendo shell SCORM");
   return res.json();
 }
@@ -54,7 +103,7 @@ export async function guardarScormShell(
   shellHtml: string,
   mallaId?: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/scorm_shell`, {
+  const res = await apiFetch(`${API_BASE}/scorm_shell`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, shell_html: shellHtml, malla_id: mallaId }),
@@ -69,7 +118,7 @@ export async function empaquetarScorm(payload: {
   recursos: ScormRecurso[];
   shell_html?: string;
 }): Promise<{ ok: boolean; download_url: string; size: number; recursos: number }> {
-  const res = await fetch(API_URLS.empaquetar_scorm, {
+  const res = await apiFetch(API_URLS.empaquetar_scorm, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -174,13 +223,13 @@ export async function listarSolicitudes(params?: {
   if (params?.limit) queryParams.set("limit", params.limit.toString());
 
   const url = `${API_URLS.listar_solicitudes}?${queryParams}`;
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) throw new Error("Error fetching solicitudes");
   return res.json();
 }
 
 export async function obtenerSolicitud(id: string): Promise<Solicitud> {
-  const res = await fetch(`${API_URLS.obtener_solicitud}?id=${id}`);
+  const res = await apiFetch(`${API_URLS.obtener_solicitud}?id=${id}`);
   if (!res.ok) throw new Error("Error fetching solicitud");
   return res.json();
 }
@@ -189,8 +238,12 @@ export async function crearSolicitud(data: {
   solicitante: Solicitante;
   curso: Curso;
   prioridad?: "alta" | "media" | "baja";
+  // Multi-tenant: empresa a la que pertenece la solicitud. Solo se usa para
+  // solicitantes externos (gmail) sin empresa asignada; si el dominio del
+  // usuario ya mapea a una empresa, el backend la deriva del token.
+  company_id?: string;
 }): Promise<{ id: string; status: string; message: string }> {
-  const res = await fetch(API_URLS.crear_solicitud, {
+  const res = await apiFetch(API_URLS.crear_solicitud, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -208,7 +261,7 @@ export async function actualizarSolicitud(
     malla_id?: string;
   }
 ): Promise<{ id: string; updated: string[]; message: string }> {
-  const res = await fetch(`${API_URLS.actualizar_solicitud}?id=${id}`, {
+  const res = await apiFetch(`${API_URLS.actualizar_solicitud}?id=${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -223,7 +276,7 @@ export async function agregarComentario(
   autor: { email: string; nombre: string; rol: string },
   menciones?: string[]
 ): Promise<{ id: string; solicitud_id: string; message: string }> {
-  const res = await fetch(`${API_URLS.agregar_comentario}?id=${solicitudId}`, {
+  const res = await apiFetch(`${API_URLS.agregar_comentario}?id=${solicitudId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ texto, autor, menciones: menciones || [] }),
@@ -238,7 +291,7 @@ export async function composeSplitVideo(
   contentHtml: string,
   id: string
 ): Promise<{ url: string }> {
-  const res = await fetch(`${AGENT_URL}/compose/split`, {
+  const res = await apiFetch(`${AGENT_URL}/compose/split`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ avatarUrl, contentHtml, id }),
@@ -258,7 +311,7 @@ export async function composeSlidesVideo(
   id: string,
   slideCount: number
 ): Promise<{ url: string }> {
-  const res = await fetch(`${AGENT_URL}/compose/slides`, {
+  const res = await apiFetch(`${AGENT_URL}/compose/slides`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ audioUrl, contentHtml, slideCount, id }),
@@ -269,6 +322,26 @@ export async function composeSlidesVideo(
   return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
 }
 
+// Iteración de guión con IA (gpt-4o). Los callers manejan la respuesta según el
+// modo (analizar_intencion / iterar), por eso devuelve la Response cruda.
+export async function iterarGuionRequest(
+  body: Record<string, unknown>
+): Promise<Response> {
+  return apiFetch(API_URLS.iterar_guion, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// Config de la empresa del usuario autenticado (multi-tenant).
+export async function obtenerMiEmpresa(): Promise<import("@/lib/brand").MiEmpresa> {
+  const res = await apiFetch(API_URLS.mi_empresa);
+  if (!res.ok) {
+    throw new Error(`Error obteniendo empresa: ${res.status}`);
+  }
+  return res.json();
+}
+
 export interface Usuario {
   uid: string;
   email: string;
@@ -277,7 +350,7 @@ export interface Usuario {
 }
 
 export async function listarUsuarios(): Promise<{ usuarios: Usuario[]; total: number }> {
-  const res = await fetch(API_URLS.listar_usuarios);
+  const res = await apiFetch(API_URLS.listar_usuarios);
   if (!res.ok) throw new Error("Error listando usuarios");
   return res.json();
 }
@@ -285,7 +358,7 @@ export async function listarUsuarios(): Promise<{ usuarios: Usuario[]; total: nu
 export async function misSolicitudes(
   email: string
 ): Promise<{ solicitudes: SolicitudListItem[]; total: number }> {
-  const res = await fetch(`${API_URLS.mis_solicitudes}?email=${email}`);
+  const res = await apiFetch(`${API_URLS.mis_solicitudes}?email=${email}`);
   if (!res.ok) throw new Error("Error fetching mis solicitudes");
   return res.json();
 }
@@ -332,7 +405,7 @@ export async function crearMalla(data: {
     documentacion: data.curso.documentacion || "",
   };
 
-  const res = await fetch(API_URLS.crear_malla, {
+  const res = await apiFetch(API_URLS.crear_malla, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -345,7 +418,7 @@ export async function crearMalla(data: {
 }
 
 export async function obtenerMalla(mallaId: string): Promise<Malla> {
-  const res = await fetch(`${API_URLS.obtener_malla}?id=${mallaId}`);
+  const res = await apiFetch(`${API_URLS.obtener_malla}?id=${mallaId}`);
   if (!res.ok) throw new Error("Error fetching malla");
   return res.json();
 }
@@ -354,7 +427,7 @@ export async function iterarMalla(
   mallaId: string,
   feedback: string
 ): Promise<{ id: string; version: number; malla: MallaItem[]; duracion_total: number }> {
-  const res = await fetch(`${API_URLS.iterar_malla}?id=${mallaId}`, {
+  const res = await apiFetch(`${API_URLS.iterar_malla}?id=${mallaId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ feedback }),
@@ -370,7 +443,7 @@ export async function guardarMalla(
   mallaId: string,
   malla: MallaItem[]
 ): Promise<{ id: string; malla: MallaItem[]; duracion_total: number; message: string }> {
-  const res = await fetch(`${API_URLS.guardar_malla}?id=${mallaId}`, {
+  const res = await apiFetch(`${API_URLS.guardar_malla}?id=${mallaId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ malla }),
@@ -389,7 +462,7 @@ export async function guardarGuion(
   guionId: number,
   contenido: Record<string, unknown>
 ): Promise<void> {
-  const res = await fetch(API_URLS.guardar_guion, {
+  const res = await apiFetch(API_URLS.guardar_guion, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, contenido }),
@@ -422,7 +495,7 @@ export interface Guion {
 export async function generarGuiones(
   mallaId: string
 ): Promise<{ malla_id: string; guiones: Guion[] }> {
-  const res = await fetch(`${API_URLS.generar_guiones}?id=${mallaId}`, {
+  const res = await apiFetch(`${API_URLS.generar_guiones}?id=${mallaId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -451,7 +524,7 @@ export async function generarAudio(
   guionId: number,
   texto: string
 ): Promise<{ job_id: string; status: string }> {
-  const res = await fetch(`${API_URLS.generar_audio}`, {
+  const res = await apiFetch(`${API_URLS.generar_audio}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, texto }),
@@ -468,7 +541,7 @@ export async function generarVideo(
   guionId: number,
   audioUrl: string
 ): Promise<{ job_id: string; status: string }> {
-  const res = await fetch(`${API_URLS.generar_video}`, {
+  const res = await apiFetch(`${API_URLS.generar_video}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, audio_url: audioUrl }),
@@ -482,7 +555,7 @@ export async function generarVideo(
 
 export async function obtenerJob(jobId: string): Promise<ContentJob> {
   // El endpoint espera ?id= (no job_id).
-  const res = await fetch(`${API_URLS.obtener_job}?id=${jobId}`);
+  const res = await apiFetch(`${API_URLS.obtener_job}?id=${jobId}`);
   if (!res.ok) {
     const error = await res.text();
     throw new Error(`Error fetching job: ${error}`);

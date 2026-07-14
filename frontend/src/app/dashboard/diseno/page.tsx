@@ -593,7 +593,7 @@ function SlidePreview({ guion, tipo }: { guion: Guion; tipo: string }) {
                 <path d="M12 3L4 9v12h16V9l-8-6z" />
               </svg>
             </div>
-            <span className="text-sm text-gray-400">Davivienda</span>
+            <span className="text-sm text-gray-400">E-Learning</span>
           </div>
           <Badge className="bg-red-600">{tipo}</Badge>
         </div>

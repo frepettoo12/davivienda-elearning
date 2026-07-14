@@ -19,12 +19,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Sube el MP4 compuesto a Cloud Storage (bucket del backend) para que sea durable
 // (preview + empaquetado SCORM). Usa ADC. Si falla, devuelve null (fallback local).
-const STORAGE_BUCKET = "davivienda-elearning-assets";
+const STORAGE_BUCKET = process.env.STORAGE_BUCKET || "davivienda-elearning-assets";
 let _storage;
-async function uploadComposed(localFile, id) {
+async function uploadComposed(localFile, id, companyId) {
   try {
     _storage ||= new Storage();
-    const dest = `composed/${id}.mp4`;
+    // Multi-tenant: prefijo por empresa. Davivienda mantiene la ruta legacy
+    // (composed/) para no romper composed_url ya persistidas.
+    const prefix = companyId && companyId !== "davivienda" ? `companies/${companyId}/composed` : "composed";
+    const dest = `${prefix}/${id}.mp4`;
     await _storage.bucket(STORAGE_BUCKET).upload(localFile, {
       destination: dest,
       metadata: { contentType: "video/mp4" },
@@ -50,7 +53,7 @@ export const COMPOSED_ROOT = resolve(__dirname, "composed");
  * @param {string} p.id          id de salida (composed/{id}.mp4)
  * @returns {Promise<{file:string, rel:string}>}
  */
-export async function composeSplit({ avatarUrl, contentHtml, id }) {
+export async function composeSplit({ avatarUrl, contentHtml, id, companyId }) {
   mkdirSync(COMPOSED_ROOT, { recursive: true });
   const work = resolve(COMPOSED_ROOT, `_tmp_${id}`);
   mkdirSync(work, { recursive: true });
@@ -86,7 +89,7 @@ export async function composeSplit({ avatarUrl, contentHtml, id }) {
       { timeout: 300000, maxBuffer: 1024 * 1024 * 16 }
     );
 
-    const storageUrl = await uploadComposed(outFile, id);
+    const storageUrl = await uploadComposed(outFile, id, companyId);
     return { file: outFile, rel: `${id}.mp4`, storageUrl };
   } finally {
     if (existsSync(work)) rmSync(work, { recursive: true, force: true });
@@ -100,7 +103,7 @@ export async function composeSplit({ avatarUrl, contentHtml, id }) {
  * @param {string} p.contentHtml HTML del slide (branded, 1920x1080)
  * @param {string} p.id          id de salida
  */
-export async function composeSlides({ audioUrl, contentHtml, slideCount = 1, id }) {
+export async function composeSlides({ audioUrl, contentHtml, slideCount = 1, id, companyId }) {
   mkdirSync(COMPOSED_ROOT, { recursive: true });
   const work = resolve(COMPOSED_ROOT, `_tmp_${id}`);
   mkdirSync(work, { recursive: true });
@@ -149,7 +152,7 @@ export async function composeSlides({ audioUrl, contentHtml, slideCount = 1, id 
       { timeout: 300000, maxBuffer: 1024 * 1024 * 16 }
     );
 
-    const storageUrl = await uploadComposed(outFile, id);
+    const storageUrl = await uploadComposed(outFile, id, companyId);
     return { file: outFile, rel: `${id}.mp4`, storageUrl };
   } finally {
     if (existsSync(work)) rmSync(work, { recursive: true, force: true });

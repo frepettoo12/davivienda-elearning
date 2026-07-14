@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/contexts/CompanyContext";
 import { AgentJobsProvider } from "@/contexts/AgentJobsContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -74,6 +74,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, role, loading, signOut } = useAuth();
+  const { company } = useCompany();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -86,7 +87,7 @@ export default function DashboardLayout({
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-red-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
       </div>
     );
   }
@@ -106,16 +107,16 @@ export default function DashboardLayout({
       <aside className="flex w-64 flex-col border-r bg-white">
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 border-b px-6">
-          <Image
-            src="/davivienda-logo.png"
-            alt="Davivienda"
-            width={40}
-            height={40}
+          {/* img plano (no next/image): el logo puede ser una URL externa del tenant */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={company.logoUrl || "/davivienda-logo.png"}
+            alt={company.nombre}
             className="h-10 w-10 object-contain"
           />
           <div>
             <h1 className="font-semibold text-gray-900">E-Learning</h1>
-            <p className="text-xs text-gray-500">Davivienda</p>
+            <p className="text-xs text-gray-500">{company.nombre}</p>
           </div>
         </div>
 
@@ -131,7 +132,7 @@ export default function DashboardLayout({
                     href={item.href}
                     className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-red-50 text-red-700"
+                        ? "bg-brand/10 text-brand"
                         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                     }`}
                   >
@@ -150,7 +151,7 @@ export default function DashboardLayout({
             <DropdownMenuTrigger className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-gray-100">
               <Avatar className="h-9 w-9">
                 <AvatarImage src={user?.photoURL || undefined} />
-                <AvatarFallback className="bg-red-100 text-red-700">
+                <AvatarFallback className="bg-brand/10 text-brand">
                   {user?.email?.charAt(0).toUpperCase() || "U"}
                 </AvatarFallback>
               </Avatar>

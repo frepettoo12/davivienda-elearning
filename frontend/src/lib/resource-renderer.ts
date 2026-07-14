@@ -4,16 +4,29 @@
  */
 
 import { Guion } from "./api";
+import { Brand, DEFAULT_BRAND, safeFont } from "./brand";
 
-const BASE_STYLES = `
+// Los colores de marca entran como CSS vars (--brand-primary/--brand-secondary):
+// un solo punto define los valores y el resto de los estilos los referencia.
+const baseStyles = (b: Brand) => {
+  const fuenteTexto = safeFont(b.fuenteTexto, "Open Sans");
+  const fuenteTitulos = safeFont(b.fuenteTitulos, "Montserrat");
+  const fam = (f: string) => encodeURIComponent(f).replace(/%20/g, "+");
+  return `
+  @import url('https://fonts.googleapis.com/css2?family=${fam(fuenteTitulos)}:wght@600;700;800&family=${fam(fuenteTexto)}:wght@400;600&display=swap');
+  :root {
+    --brand-primary: ${b.colorPrimario};
+    --brand-secondary: ${b.colorSecundario};
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: '${fuenteTexto}', 'Segoe UI', system-ui, sans-serif;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
     min-height: 100vh;
     color: white;
     padding: 40px;
   }
+  h1, h2, h3, .title { font-family: '${fuenteTitulos}', 'Segoe UI', sans-serif; }
   .container { max-width: 1200px; margin: 0 auto; }
   .header {
     display: flex;
@@ -26,17 +39,23 @@ const BASE_STYLES = `
   .logo {
     width: 50px;
     height: 50px;
-    background: #DA291C;
+    background: var(--brand-primary);
     border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 24px;
   }
+  .logo-img {
+    height: 50px;
+    max-width: 160px;
+    object-fit: contain;
+    border-radius: 8px;
+  }
   .title { font-size: 28px; font-weight: bold; }
   .subtitle { color: rgba(255,255,255,0.6); font-size: 14px; }
   .highlight-box {
-    background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
+    background: linear-gradient(90deg, var(--brand-secondary) 0%, color-mix(in srgb, var(--brand-secondary) 80%, black) 100%);
     color: #1a1a2e;
     padding: 16px 24px;
     border-radius: 12px;
@@ -47,8 +66,16 @@ const BASE_STYLES = `
     gap: 12px;
   }
 `;
+};
 
-export function generateInfografiaHTML(guion: Guion): string {
+// El logo por URL solo sirve en HTML standalone si es absoluta (http/data:);
+// una ruta relativa del frontend no resuelve en blob/workspace/SCORM.
+const logoHtml = (b: Brand) =>
+  b.logoUrl && /^(https?:|data:)/.test(b.logoUrl)
+    ? `<img class="logo-img" src="${b.logoUrl}" alt="${b.nombre}">`
+    : '<div class="logo">🏠</div>';
+
+export function generateInfografiaHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido as {
     titulo?: string;
     dato_destacado?: string;
@@ -62,9 +89,9 @@ export function generateInfografiaHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - Davivienda E-Learning</title>
+  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -81,7 +108,7 @@ export function generateInfografiaHTML(guion: Guion): string {
     .card:hover {
       transform: translateY(-4px);
       background: rgba(255,255,255,0.1);
-      border-color: #DA291C;
+      border-color: var(--brand-primary);
     }
     .card-icon {
       font-size: 48px;
@@ -105,7 +132,7 @@ export function generateInfografiaHTML(guion: Guion): string {
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${c.titulo || guion.bloque}</div>
         <div class="subtitle">Infografía Interactiva</div>
@@ -134,7 +161,7 @@ export function generateInfografiaHTML(guion: Guion): string {
 </html>`;
 }
 
-export function generateComparadorHTML(guion: Guion): string {
+export function generateComparadorHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido as {
     titulo?: string;
     columnas?: string[];
@@ -149,9 +176,9 @@ export function generateComparadorHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - Davivienda E-Learning</title>
+  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .table-container {
       background: rgba(255,255,255,0.05);
       border-radius: 16px;
@@ -163,7 +190,7 @@ export function generateComparadorHTML(guion: Guion): string {
       border-collapse: collapse;
     }
     th {
-      background: #DA291C;
+      background: var(--brand-primary);
       padding: 20px;
       text-align: left;
       font-weight: bold;
@@ -181,17 +208,17 @@ export function generateComparadorHTML(guion: Guion): string {
     tr:last-child td { border-bottom: none; }
     td:first-child {
       font-weight: 600;
-      color: #fbbf24;
+      color: var(--brand-secondary);
     }
     .col-highlight {
-      background: rgba(218, 41, 28, 0.1);
+      background: color-mix(in srgb, var(--brand-primary) 10%, transparent);
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${c.titulo || guion.bloque}</div>
         <div class="subtitle">Tabla Comparativa</div>
@@ -224,7 +251,7 @@ export function generateComparadorHTML(guion: Guion): string {
 </html>`;
 }
 
-export function generateInteractivoHTML(guion: Guion): string {
+export function generateInteractivoHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido as {
     titulo?: string;
     instruccion?: string;
@@ -238,9 +265,9 @@ export function generateInteractivoHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - Davivienda E-Learning</title>
+  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .instruction {
       color: rgba(255,255,255,0.7);
       font-style: italic;
@@ -267,7 +294,7 @@ export function generateInteractivoHTML(guion: Guion): string {
       font-weight: 600;
       font-size: 18px;
       transition: all 0.3s;
-      background: linear-gradient(90deg, #DA291C 0%, #b91c1c 100%);
+      background: linear-gradient(90deg, var(--brand-primary) 0%, color-mix(in srgb, var(--brand-primary) 80%, black) 100%);
     }
     .accordion-header:hover {
       filter: brightness(1.1);
@@ -298,7 +325,7 @@ export function generateInteractivoHTML(guion: Guion): string {
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${c.titulo || guion.bloque}</div>
         <div class="subtitle">Contenido Interactivo</div>
@@ -331,7 +358,7 @@ export function generateInteractivoHTML(guion: Guion): string {
 </html>`;
 }
 
-export function generateFlashcardsHTML(guion: Guion): string {
+export function generateFlashcardsHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   // Las tarjetas pueden venir como `tarjetas`, `items` o `flashcards`,
   // y cada tarjeta como frente/reverso o pregunta/respuesta.
   const c = guion.contenido as {
@@ -351,9 +378,9 @@ export function generateFlashcardsHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - Davivienda E-Learning</title>
+  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .instruction {
       color: rgba(255,255,255,0.7);
       margin-bottom: 32px;
@@ -395,12 +422,12 @@ export function generateFlashcardsHTML(guion: Guion): string {
       line-height: 1.5;
     }
     .flashcard-front {
-      background: linear-gradient(135deg, #DA291C 0%, #b91c1c 100%);
+      background: linear-gradient(135deg, var(--brand-primary) 0%, color-mix(in srgb, var(--brand-primary) 80%, black) 100%);
       font-weight: bold;
     }
     .flashcard-back {
       background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
-      border: 2px solid #DA291C;
+      border: 2px solid var(--brand-primary);
       transform: rotateY(180deg);
     }
     .card-number {
@@ -417,7 +444,7 @@ export function generateFlashcardsHTML(guion: Guion): string {
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${guion.bloque}</div>
         <div class="subtitle">Flashcards</div>
@@ -450,7 +477,7 @@ export function generateFlashcardsHTML(guion: Guion): string {
 </html>`;
 }
 
-export function generateQuizHTML(guion: Guion): string {
+export function generateQuizHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido as {
     preguntas?: Array<{ pregunta: string; opciones: string[]; correcta: number }>;
   };
@@ -462,9 +489,9 @@ export function generateQuizHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - Davivienda E-Learning</title>
+  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .quiz-container { max-width: 800px; margin: 0 auto; }
     .question {
       background: rgba(255,255,255,0.05);
@@ -474,7 +501,7 @@ export function generateQuizHTML(guion: Guion): string {
       margin-bottom: 24px;
     }
     .question-number {
-      color: #DA291C;
+      color: var(--brand-primary);
       font-weight: bold;
       margin-bottom: 8px;
     }
@@ -495,7 +522,7 @@ export function generateQuizHTML(guion: Guion): string {
       align-items: center;
       gap: 12px;
     }
-    .option:hover { border-color: #DA291C; background: rgba(218,41,28,0.1); }
+    .option:hover { border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, transparent); }
     .option.selected { border-color: #3b82f6; background: rgba(59,130,246,0.2); }
     .option.correct { border-color: #22c55e; background: rgba(34,197,94,0.2); }
     .option.incorrect { border-color: #ef4444; background: rgba(239,68,68,0.2); }
@@ -510,7 +537,7 @@ export function generateQuizHTML(guion: Guion): string {
       font-weight: bold;
     }
     .check-btn {
-      background: #DA291C;
+      background: var(--brand-primary);
       color: white;
       border: none;
       padding: 16px 32px;
@@ -541,7 +568,7 @@ export function generateQuizHTML(guion: Guion): string {
     }
     .progress-fill {
       height: 100%;
-      background: #DA291C;
+      background: var(--brand-primary);
       transition: width 0.3s;
     }
   </style>
@@ -549,7 +576,7 @@ export function generateQuizHTML(guion: Guion): string {
 <body>
   <div class="container quiz-container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${guion.bloque}</div>
         <div class="subtitle">Evaluación - ${preguntas.length} preguntas</div>
@@ -638,7 +665,7 @@ export function generateQuizHTML(guion: Guion): string {
 </html>`;
 }
 
-export function generateCasoPracticoHTML(guion: Guion): string {
+export function generateCasoPracticoHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido as {
     escenario?: string;
     preguntas?: Array<{ pregunta: string; opciones: string[]; correcta: number; feedback?: string }>;
@@ -651,9 +678,9 @@ export function generateCasoPracticoHTML(guion: Guion): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - Davivienda E-Learning</title>
+  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
   <style>
-    ${BASE_STYLES}
+    ${baseStyles(brand)}
     .case-container { max-width: 900px; margin: 0 auto; }
     .scenario {
       background: linear-gradient(135deg, rgba(59,130,246,0.2) 0%, rgba(37,99,235,0.2) 100%);
@@ -684,7 +711,7 @@ export function generateCasoPracticoHTML(guion: Guion): string {
     .question.active {
       opacity: 1;
       pointer-events: auto;
-      border-color: #DA291C;
+      border-color: var(--brand-primary);
     }
     .question.completed {
       opacity: 0.7;
@@ -704,7 +731,7 @@ export function generateCasoPracticoHTML(guion: Guion): string {
       cursor: pointer;
       transition: all 0.2s;
     }
-    .option:hover { border-color: #DA291C; }
+    .option:hover { border-color: var(--brand-primary); }
     .option.correct { border-color: #22c55e; background: rgba(34,197,94,0.2); }
     .option.incorrect { border-color: #ef4444; background: rgba(239,68,68,0.2); }
     .feedback {
@@ -720,7 +747,7 @@ export function generateCasoPracticoHTML(guion: Guion): string {
 <body>
   <div class="container case-container">
     <div class="header">
-      <div class="logo">🏠</div>
+      ${logoHtml(brand)}
       <div>
         <div class="title">${guion.bloque}</div>
         <div class="subtitle">Caso Práctico</div>
@@ -782,27 +809,27 @@ export function generateCasoPracticoHTML(guion: Guion): string {
 
 // Genera el HTML standalone de un recurso a partir de su guión JSON.
 // Es la "semilla" que edita el Modo Agente en la fase de Contenido.
-export function generateResourceHTML(guion: Guion, tipo: string): string {
+export function generateResourceHTML(guion: Guion, tipo: string, brand: Brand = DEFAULT_BRAND): string {
   switch (tipo) {
     case 'Infografía':
-      return generateInfografiaHTML(guion);
+      return generateInfografiaHTML(guion, brand);
     case 'Comparador':
-      return generateComparadorHTML(guion);
+      return generateComparadorHTML(guion, brand);
     case 'Interactivo':
-      return generateInteractivoHTML(guion);
+      return generateInteractivoHTML(guion, brand);
     case 'Flashcards':
-      return generateFlashcardsHTML(guion);
+      return generateFlashcardsHTML(guion, brand);
     case 'Quiz':
-      return generateQuizHTML(guion);
+      return generateQuizHTML(guion, brand);
     case 'Caso práctico':
-      return generateCasoPracticoHTML(guion);
+      return generateCasoPracticoHTML(guion, brand);
     default:
       return `<html><body><h1>Tipo no soportado: ${tipo}</h1><pre>${JSON.stringify(guion.contenido, null, 2)}</pre></body></html>`;
   }
 }
 
-export function openResourceInNewTab(guion: Guion, tipo: string): void {
-  const html = generateResourceHTML(guion, tipo);
+export function openResourceInNewTab(guion: Guion, tipo: string, brand: Brand = DEFAULT_BRAND): void {
+  const html = generateResourceHTML(guion, tipo, brand);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');

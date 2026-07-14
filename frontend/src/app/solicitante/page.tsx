@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { crearSolicitud } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/contexts/CompanyContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const AREAS = [
+const DEFAULT_AREAS = [
   "Banca Personal",
   "Banca Empresarial",
   "Banca Corporativa",
@@ -43,6 +44,10 @@ const COURSE_TYPES = [
 export default function NuevaSolicitudPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { company, miEmpresa } = useCompany();
+  // Áreas por empresa (companies.areas) con fallback a la taxonomía legacy.
+  const AREAS = company.areas?.length ? company.areas : DEFAULT_AREAS;
+  const emailPlaceholder = user?.email || "nombre.apellido@empresa.com";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -88,7 +93,7 @@ export default function NuevaSolicitudPage() {
   const downloadTemplate = () => {
     const ejemplo = {
       nombre: "Juan Pérez",
-      email: "juan.perez@davivienda.com",
+      email: "juan.perez@empresa.com",
       area: "Cumplimiento",
       nombre_curso: "FATCA y CRS para Asesores",
       tipo_curso: "compliance",
@@ -175,7 +180,15 @@ export default function NuevaSolicitudPage() {
     setSubmitting(true);
 
     try {
+      // Empresa del solicitante: la resuelta por el backend, o la de la URL de
+      // invitación (?empresa=cliente2) para externos; sin nada, el backend usa
+      // el default (davivienda).
+      const empresaParam =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("empresa")
+          : null;
       const result = await crearSolicitud({
+        company_id: miEmpresa?.company_id || empresaParam || undefined,
         solicitante: {
           nombre: formData.nombre,
           email: formData.email,
@@ -286,7 +299,7 @@ export default function NuevaSolicitudPage() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="juan.perez@davivienda.com"
+                  placeholder={emailPlaceholder}
                 />
               </div>
               <div>

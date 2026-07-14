@@ -4,6 +4,7 @@
  */
 
 import { ResourceComponent, ComponentContent } from "./component-renderer";
+import { Brand, DEFAULT_BRAND, safeFont } from "./brand";
 
 // Config de estilos globales
 export interface ComponentConfig {
@@ -17,24 +18,28 @@ export interface ComponentContentWithConfig extends ComponentContent {
   config?: ComponentConfig;
 }
 
-function getBaseStyles(config?: ComponentConfig): string {
+function getBaseStyles(config?: ComponentConfig, brand: Brand = DEFAULT_BRAND): string {
   const fondoImagen = config?.fondo_imagen || '';
   const fondoOverlay = config?.fondo_overlay || 'rgba(0,0,0,0.75)';
-  const colorPrimario = config?.color_primario || '#DA291C';
-  const colorSecundario = config?.color_secundario || '#FFD700';
+  // La config per-recurso (si el guión la trae) le gana al brand de la empresa.
+  const colorPrimario = config?.color_primario || brand.colorPrimario;
+  const colorSecundario = config?.color_secundario || brand.colorSecundario;
+  const fuenteTexto = safeFont(brand.fuenteTexto, "Open Sans");
+  const fam = encodeURIComponent(fuenteTexto).replace(/%20/g, "+");
 
   const backgroundStyle = fondoImagen
     ? `background: linear-gradient(${fondoOverlay}, ${fondoOverlay}), url('${fondoImagen}') center/cover fixed;`
     : `background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);`;
 
   return `
+@import url('https://fonts.googleapis.com/css2?family=${fam}:wght@400;600;700&display=swap');
 :root {
   --color-primary: ${colorPrimario};
   --color-secondary: ${colorSecundario};
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: '${fuenteTexto}', 'Segoe UI', system-ui, -apple-system, sans-serif;
   ${backgroundStyle}
   min-height: 100vh;
   color: white;
@@ -73,7 +78,7 @@ body {
 /* Intro */
 .comp-intro { color: rgba(255,255,255,0.8); margin-bottom: 24px; font-size: 18px; }
 .comp-intro-destacado {
-  background: linear-gradient(90deg, #fbbf24, #f59e0b);
+  background: linear-gradient(90deg, var(--color-secondary), color-mix(in srgb, var(--color-secondary) 80%, black));
   color: #1a1a2e;
   padding: 16px 24px;
   border-radius: 12px;
@@ -104,7 +109,7 @@ body {
 .comp-card:hover {
   transform: translateY(-4px);
   background: rgba(255,255,255,0.1);
-  border-color: #DA291C;
+  border-color: var(--color-primary);
 }
 .comp-card-icon { font-size: 40px; margin-bottom: 12px; }
 .comp-card-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; }
@@ -120,7 +125,7 @@ body {
   padding: 8px 0;
   color: rgba(255,255,255,0.9);
 }
-.comp-lista-bullet { color: #DA291C; font-weight: bold; }
+.comp-lista-bullet { color: var(--color-primary); font-weight: bold; }
 
 /* Tabla */
 .comp-tabla { margin-bottom: 24px; }
@@ -132,7 +137,7 @@ body {
 }
 .comp-tabla table { width: 100%; border-collapse: collapse; }
 .comp-tabla th {
-  background: #DA291C;
+  background: var(--color-primary);
   padding: 16px;
   text-align: left;
   font-weight: 600;
@@ -142,13 +147,13 @@ body {
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 .comp-tabla tr:last-child td { border-bottom: none; }
-.comp-tabla td:first-child { font-weight: 500; color: #fbbf24; }
+.comp-tabla td:first-child { font-weight: 500; color: var(--color-secondary); }
 
 /* Acordeon */
 .comp-acordeon { margin-bottom: 24px; }
 .comp-acordeon-item { margin-bottom: 8px; }
 .comp-acordeon-header {
-  background: linear-gradient(90deg, #DA291C, #b91c1c);
+  background: linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black));
   padding: 16px 20px;
   border-radius: 12px;
   cursor: pointer;
@@ -182,7 +187,7 @@ body {
   margin-top: 24px;
 }
 .comp-cta-destacado {
-  background: linear-gradient(90deg, #DA291C, #b91c1c);
+  background: linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black));
   font-size: 24px;
   font-weight: bold;
 }
@@ -252,12 +257,12 @@ body {
   font-size: 16px;
 }
 .comp-flashcard-front {
-  background: linear-gradient(135deg, #DA291C, #b91c1c);
+  background: linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black));
   font-weight: bold;
 }
 .comp-flashcard-back {
   background: rgba(255,255,255,0.1);
-  border: 2px solid #DA291C;
+  border: 2px solid var(--color-primary);
   transform: rotateY(180deg);
 }
 
@@ -279,7 +284,7 @@ body {
   cursor: pointer;
   transition: all 0.2s;
 }
-.comp-quiz-option:hover { border-color: #DA291C; }
+.comp-quiz-option:hover { border-color: var(--color-primary); }
 .comp-quiz-option.correct { border-color: #22c55e; background: rgba(34,197,94,0.2); }
 
 /* Caso */
@@ -470,16 +475,16 @@ function generateComponentHTML(component: ResourceComponent): string {
   }
 }
 
-export function generateFullHTML(content: ComponentContentWithConfig, title?: string): string {
+export function generateFullHTML(content: ComponentContentWithConfig, title?: string, brand: Brand = DEFAULT_BRAND): string {
   const componentsHTML = content.componentes.map(c => generateComponentHTML(c)).join('\n');
-  const baseStyles = getBaseStyles(content.config);
+  const baseStyles = getBaseStyles(content.config, brand);
 
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title || 'Recurso E-Learning'} - Davivienda</title>
+  <title>${title || 'Recurso E-Learning'} - ${brand.nombre}</title>
   <style>${baseStyles}${BASE_STYLES}</style>
 </head>
 <body>
@@ -490,8 +495,8 @@ export function generateFullHTML(content: ComponentContentWithConfig, title?: st
 </html>`;
 }
 
-export function openComponentsInNewTab(content: ComponentContentWithConfig, title?: string): void {
-  const html = generateFullHTML(content, title);
+export function openComponentsInNewTab(content: ComponentContentWithConfig, title?: string, brand: Brand = DEFAULT_BRAND): void {
+  const html = generateFullHTML(content, title, brand);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');

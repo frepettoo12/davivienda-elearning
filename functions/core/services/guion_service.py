@@ -16,9 +16,18 @@ COURSE_TYPE_GUIDANCE = {
 }
 
 
+def _empresa_desc(empresa: Dict[str, Any] | None) -> tuple[str, str]:
+    """(nombre para el prompt, contexto de industria para ejemplos)."""
+    if empresa and empresa.get("nombre"):
+        industria = empresa.get("industria") or empresa.get("descripcion_prompt") or "la industria de la empresa"
+        return empresa["nombre"], industria
+    return "Davivienda", "banca colombiana"
+
+
 def generar_guion(
     recurso: Dict[str, Any],
     contexto_curso: Dict[str, str],
+    empresa: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Genera el guion/contenido detallado para un recurso específico.
@@ -86,7 +95,9 @@ Genera preguntas de evaluación.
 
     instruccion = instrucciones_tipo.get(tipo, instrucciones_tipo["Video"])
 
-    prompt = f"""Eres un diseñador instruccional experto en e-learning corporativo para Davivienda.
+    empresa_nombre, empresa_industria = _empresa_desc(empresa)
+
+    prompt = f"""Eres un diseñador instruccional experto en e-learning corporativo para {empresa_nombre}.
 
 CONTEXTO DEL CURSO:
 - Nombre: {contexto_curso.get('nombre', '')}
@@ -107,7 +118,7 @@ INSTRUCCIONES:
 
 REGLAS:
 1. Lenguaje profesional pero accesible
-2. Ejemplos relevantes para banca colombiana
+2. Ejemplos relevantes para {empresa_industria}
 3. Contenido práctico y aplicable
 4. Coherencia estricta con el arquetipo del curso
 
@@ -143,6 +154,7 @@ def generar_guiones_batch(
     malla: List[Dict[str, Any]],
     contexto_curso: Dict[str, str],
     max_workers: int = 8,
+    empresa: Dict[str, Any] | None = None,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Genera guiones para todos los recursos de una malla en paralelo.
@@ -161,7 +173,7 @@ def generar_guiones_batch(
     workers = max(1, min(max_workers, len(malla)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         resultados = list(
-            executor.map(lambda r: generar_guion(r, contexto_curso), malla)
+            executor.map(lambda r: generar_guion(r, contexto_curso, empresa=empresa), malla)
         )
 
     guiones = []

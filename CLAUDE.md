@@ -1201,3 +1201,71 @@ chat gpt-4o single-shot (`iterar_guion_endpoint`) como motor de iteración de co
 - macOS arm64: si numpy/pandas/lxml dan `incompatible architecture (x86_64)`, reinstalar con `pip install --force-reinstall --no-cache-dir` (eran wheels x86_64 en Mac arm64).
 - El frontend Next.js (16.x) tiene un `AGENTS.md` que avisa que difiere de versiones conocidas → copiar patrones de páginas existentes en vez de asumir.
 - La app Streamlit (`streamlit-legacy/`) está **DEPRECADA** — no levantarla ni considerarla. La interfaz vigente es el dashboard Next.js (`frontend/`, `:3000`). Ver banner en la sección "MVP STREAMLIT".
+
+---
+
+## MULTI-COMPANY / MULTI-TENANT (Jul 2026)
+
+La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresas.
+**Principio: todos los defaults son Davivienda** (`DEFAULT_BRAND`, doc sin `company_id`
+= davivienda), así nada legacy se rompe. Plan completo: `~/.claude/plans/piped-floating-gosling.md`.
+
+### Modelo
+- **`companies/{company_id}`** (Firestore) = fuente de verdad del tenant: `nombre`, `activo`,
+  `dominios[]` (mapeo usuario→empresa por dominio de email), `learning_domains[]` (subset con rol
+  learning), `industria`/`descripcion_prompt` (para prompts GPT), `branding{nombre_display,
+  color_primario, color_acento, logo_url, fuente_titulos, fuente_texto}`, `email{from_name}`,
+  `app_url`, `areas[]`, `lms_nombre`, `defaults{voice_id, avatar_id, passing_score}`,
+  `scorm{shell_html, manifest_identifier}`.
+- Seed: `scripts/seed_companies.py` (idempotente; migra `config/scorm.shell_html` al doc).
+  Backfill de datos legacy: `scripts/backfill_company_id.py --dry-run`.
+- Datos (`mallas`, `solicitudes`, `jobs`) llevan `company_id`; sin campo = davivienda
+  (`owner_company_id()`). Lecturas cross-tenant → **404** (no filtrar existencia).
+- Externos (gmail): quedan mapeados en `users/{uid}.company_id` al crear su 1ª solicitud
+  (el body de `crear_solicitud` acepta `company_id`; URL de invitación `?empresa=X`).
+
+### Auth (Functions + agent-service)
+- `functions/core/auth.py` (`@require_auth(roles=...)` bajo `@https_fn.on_request`) +
+  `core/tenancy.py` (resolución por dominio con cache 5 min). Todos los endpoints decorados;
+  `health` público. `GET /mi_empresa` → config del tenant para el frontend.
+- **`AUTH_ENFORCE`** (env, default `false`): modo suave = sin token → warning + contexto
+  davivienda (rollout sin downtime). Flip a `true` cuando los logs muestren 100% con token.
+  Mismo flag en agent-service (`tenant.mjs`).
+- Frontend manda `Authorization: Bearer` en todo (`apiFetch`/`authHeaders` en `lib/api.ts`);
+  iframes de preview usan `?auth=` + path por tenant `/ws/{companyId}/{key}/` (hook
+  `useWsPreviewSrc` en `CompanyContext.tsx`).
+- Reglas Firestore/Storage cerradas (`allow if false`) — todo pasa por Admin SDK.
+  ⚠️ Requiere deploy de reglas SOLO después de AUTH_ENFORCE=true estable.
+
+### Branding
+- Frontend: `lib/brand.ts` (`Brand`, `DEFAULT_BRAND`, `ALLOWED_FONTS`) + `CompanyContext`
+  (carga `/mi_empresa`, cachea en localStorage, aplica `--brand-primary/--brand-secondary`
+  en `:root` → clases Tailwind `bg-brand`, `text-brand`, `bg-brand/10`).
+- Generadores HTML (`resource-renderer.ts`, `component-html-generator.ts`,
+  `resource-final-html.ts`, `buildAvatarPanelHtml`/`buildDeckHtml`): aceptan
+  `brand: Brand = DEFAULT_BRAND`; los hex pasaron a `var(--brand-primary/secondary)`.
+- Backend: prompts de `malla_service`/`guion_service` aceptan `empresa`; `notifications.py`
+  brandea emails y filtra destinatarios por `learning_domains` de la company;
+  `scorm.py` → `default_shell_for(company)` + `_manifest(identifier=...)`.
+- agent-service: `buildVerifyInstructions(brand)` (el brand lo lee de Firestore, NO del body);
+  workspaces `workspaces/{companyId}/{sessionKey}`; bucket por env `STORAGE_BUCKET` y
+  compuestos de otros tenants en `companies/{id}/composed/`.
+- **NO renombrar** el marcador `/* === DAVIVIENDA:COURSE === */` (token estructural:
+  regex en scorm.py + scorm/page.tsx + shells persistidos).
+
+### Storage
+- Davivienda mantiene rutas legacy (`audio/`, `video/`, `scorm/`, `composed/`); tenants nuevos
+  van a `companies/{company_id}/...` (`_storage_prefix()` en main.py). Sigue `make_public()`
+  (URLs embebidas en cursos por tiempo indefinido; revisable v2).
+
+### Onboarding de un cliente nuevo (sin código)
+1. Agregar el doc en `COMPANIES` de `scripts/seed_companies.py` (o `--file cliente.json`) y correr.
+2. Si usan Google Workspace propio: agregar dominio a authorized domains de Firebase Auth.
+3. Smoke test: login → solicitud → malla → contenido (agente con su marca) → SCORM con su shell.
+
+### Pendientes de rollout (ops, no código)
+- [ ] Correr `scripts/seed_companies.py` (crea `companies/davivienda`).
+- [ ] Deploy de functions (`firebase deploy --only functions`) con `AUTH_ENFORCE=false`.
+- [ ] Verificar en logs que el 100% de requests llegan con token → setear `AUTH_ENFORCE=true` (+ mismo env en agent-service).
+- [ ] Correr `scripts/backfill_company_id.py` (primero `--dry-run`).
+- [ ] Deploy de reglas (`firebase deploy --only firestore:rules,storage`) recién después del enforce.

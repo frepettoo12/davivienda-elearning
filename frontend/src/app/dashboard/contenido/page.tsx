@@ -13,9 +13,11 @@ import {
   Guion,
   SolicitudListItem,
 } from "@/lib/api";
-import { AGENT_URL, composeSplitVideo, composeSlidesVideo } from "@/lib/api";
+import { AGENT_URL, composeSplitVideo, composeSlidesVideo, iterarGuionRequest } from "@/lib/api";
 import { useAgentJobs, type AgentImage } from "@/contexts/AgentJobsContext";
 import { openResourceInNewTab, generateResourceHTML } from "@/lib/resource-renderer";
+import { Brand, DEFAULT_BRAND, safeFont } from "@/lib/brand";
+import { useCompany, useWsPreviewSrc } from "@/contexts/CompanyContext";
 import { RenderComponents, isComponentContent, type ResourceComponent } from "@/lib/component-renderer";
 import { openComponentsInNewTab, generateFullHTML, type ComponentContentWithConfig } from "@/lib/component-html-generator";
 import { Button } from "@/components/ui/button";
@@ -147,8 +149,6 @@ const SLIDE_ADD_OPTIONS: SlideAddOption[] = [
   { id: "mitos_realidad", label: "Mitos vs realidad", hint: "Aclarar confusiones frecuentes" },
 ];
 
-const ITERAR_GUION_ENDPOINT = "https://us-central1-davivienda-elearning.cloudfunctions.net/iterar_guion_endpoint";
-
 interface ResourceGeneration {
   audioJobId?: string;
   audioStatus?: "pending" | "processing" | "completed" | "failed";
@@ -159,6 +159,7 @@ interface ResourceGeneration {
 }
 
 export default function ContenidoPage() {
+  const { company } = useCompany();
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
@@ -547,10 +548,10 @@ export default function ContenidoPage() {
                             window.open(url, "_blank");
                           } else if (isComponentContent(selectedGuion.contenido)) {
                             // Modo componentes - usar generador de componentes
-                            openComponentsInNewTab(selectedGuion.contenido, selectedMallaItem.recurso);
+                            openComponentsInNewTab(selectedGuion.contenido, selectedMallaItem.recurso, company);
                           } else {
                             // Modo legacy - usar templates
-                            openResourceInNewTab(selectedGuion, selectedMallaItem.tipo_recurso);
+                            openResourceInNewTab(selectedGuion, selectedMallaItem.tipo_recurso, company);
                           }
                         }}
                         className="w-full bg-green-600 hover:bg-green-700"
@@ -657,6 +658,7 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
   mallaId: string;
   onUpdate: (guion: Guion) => void;
 }) {
+  const { company } = useCompany();
   const sessionKey = `${mallaId || "m"}_${guion.id}`;
   // Estado de la corrida vive en el contexto global → sobrevive cambiar de recurso/página.
   const { getJob, start, getDraft, setDraft } = useAgentJobs();
@@ -684,12 +686,12 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
   const seedHtml = useMemo(() => {
     if (guion.contenido.html) return guion.contenido.html;
     if (isComponentContent(guion.contenido)) {
-      return generateFullHTML(guion.contenido as unknown as ComponentContentWithConfig, item.recurso);
+      return generateFullHTML(guion.contenido as unknown as ComponentContentWithConfig, item.recurso, company);
     }
-    return generateResourceHTML(guion, item.tipo_recurso);
-  }, [guion, item]);
+    return generateResourceHTML(guion, item.tipo_recurso, company);
+  }, [guion, item, company]);
 
-  const previewSrc = `${AGENT_URL}/ws/${sessionKey}/index.html?t=${previewKey}`;
+  const previewSrc = useWsPreviewSrc(sessionKey, previewKey);
 
   // Cuando el agente termina (aunque hayas navegado), aplicar el HTML resultante.
   useEffect(() => {
@@ -783,7 +785,7 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
             <textarea
               value={instruction}
               onChange={(e) => setDraft(sessionKey, e.target.value)}
-              placeholder="Ej: Hacé el comparador más visual con tarjetas, fondo degradado y los colores de Davivienda. Arreglá el overflow en mobile."
+              placeholder="Ej: Hacé el comparador más visual con tarjetas, fondo degradado y los colores de la marca. Arreglá el overflow en mobile."
               className="h-24 w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm focus:border-red-500 focus:outline-none"
             />
             <div className="mt-2 space-y-2">
@@ -971,8 +973,8 @@ function GuionPreview({ guion, tipo }: { guion: Guion; tipo: string }) {
 }
 
 // Panel de contenido (lado derecho del video split) generado desde el guión.
-// Branded Davivienda. Para v1: título + bullets (puntos_clave o títulos de slides).
-function buildAvatarPanelHtml(guion: Guion, titulo: string): string {
+// Brandeado por empresa. Para v1: título + bullets (puntos_clave o títulos de slides).
+function buildAvatarPanelHtml(guion: Guion, titulo: string, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido;
   let bullets: string[] = [];
   if (Array.isArray(c.puntos_clave) && c.puntos_clave.length) {
@@ -983,28 +985,32 @@ function buildAvatarPanelHtml(guion: Guion, titulo: string): string {
   bullets = bullets.slice(0, 5);
   const esc = (s: string) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const items = bullets.map((b) => `<li>${esc(b)}</li>`).join("");
+  const fuente = safeFont(brand.fuenteTitulos, "Montserrat");
+  const fam = encodeURIComponent(fuente).replace(/%20/g, "+");
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+    @import url('https://fonts.googleapis.com/css2?family=${fam}:wght@700;800&display=swap');
     *{margin:0;box-sizing:border-box}
+    :root{--brand-primary:${brand.colorPrimario};--brand-secondary:${brand.colorSecundario}}
     body{width:1248px;height:1080px;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 55%,#0f3460 100%);
-      font-family:'Montserrat','Segoe UI',sans-serif;color:#fff;display:flex;flex-direction:column;justify-content:center;padding:90px 80px}
-    .bar{width:90px;height:8px;background:#DA291C;border-radius:4px;margin-bottom:34px}
+      font-family:'${fuente}','Segoe UI',sans-serif;color:#fff;display:flex;flex-direction:column;justify-content:center;padding:90px 80px}
+    .bar{width:90px;height:8px;background:var(--brand-primary);border-radius:4px;margin-bottom:34px}
     h1{font-size:62px;line-height:1.1;font-weight:800;margin-bottom:40px}
     ul{list-style:none;padding:0}
     li{font-size:36px;line-height:1.5;margin:18px 0;padding-left:46px;position:relative}
     li::before{content:'';position:absolute;left:0;top:14px;width:22px;height:22px;border-radius:50%;
-      background:#FFD700;box-shadow:0 0 0 6px rgba(255,215,0,0.18)}
+      background:var(--brand-secondary);box-shadow:0 0 0 6px color-mix(in srgb, var(--brand-secondary) 18%, transparent)}
     .logo{position:absolute;bottom:60px;font-size:24px;font-weight:700;color:rgba(255,255,255,0.6)}
   </style></head><body>
     <div class="bar"></div>
     <h1>${esc(titulo)}</h1>
     ${items ? `<ul>${items}</ul>` : ""}
-    <div class="logo">Davivienda</div>
+    <div class="logo">${esc(brand.nombre)}</div>
   </body></html>`;
 }
 
-// Deck de slides (N secciones 1920x1080 apiladas) para el video. Branded Davivienda.
+// Deck de slides (N secciones 1920x1080 apiladas) para el video. Brandeado por empresa.
 // Cada <section class="slide"> es una slide; el agent-service las recorta y arma el video.
-function buildDeckHtml(guion: Guion, titulo: string): string {
+function buildDeckHtml(guion: Guion, titulo: string, brand: Brand = DEFAULT_BRAND): string {
   const c = guion.contenido;
   const esc = (s: string) => String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
   type S = { titulo?: string; bullets?: string[]; puntos?: string[] };
@@ -1021,20 +1027,24 @@ function buildDeckHtml(guion: Guion, titulo: string): string {
       <h1>${esc(s.titulo || titulo)}</h1>
       ${items ? `<ul>${items}</ul>` : ""}
       <div class="num">${i + 1} / ${slides.length}</div>
-      <div class="logo">Davivienda</div>
+      <div class="logo">${esc(brand.nombre)}</div>
     </section>`;
   }).join("");
+  const fuente = safeFont(brand.fuenteTitulos, "Montserrat");
+  const fam = encodeURIComponent(fuente).replace(/%20/g, "+");
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>
+    @import url('https://fonts.googleapis.com/css2?family=${fam}:wght@700;800&display=swap');
     *{margin:0;box-sizing:border-box}
-    body{width:1920px;font-family:'Montserrat','Segoe UI',sans-serif}
+    :root{--brand-primary:${brand.colorPrimario};--brand-secondary:${brand.colorSecundario}}
+    body{width:1920px;font-family:'${fuente}','Segoe UI',sans-serif}
     .slide{width:1920px;height:1080px;position:relative;color:#fff;padding:110px 130px;
       display:flex;flex-direction:column;justify-content:center;
       background:linear-gradient(135deg,#1a1a2e 0%,#16213e 55%,#0f3460 100%)}
-    .bar{width:110px;height:9px;background:#DA291C;border-radius:5px;margin-bottom:40px}
+    .bar{width:110px;height:9px;background:var(--brand-primary);border-radius:5px;margin-bottom:40px}
     h1{font-size:84px;line-height:1.08;font-weight:800;margin-bottom:54px;max-width:1500px}
     ul{list-style:none;padding:0}
     li{font-size:44px;line-height:1.5;margin:22px 0;padding-left:58px;position:relative;max-width:1550px}
-    li::before{content:'';position:absolute;left:0;top:18px;width:26px;height:26px;border-radius:50%;background:#FFD700;box-shadow:0 0 0 7px rgba(255,215,0,0.18)}
+    li::before{content:'';position:absolute;left:0;top:18px;width:26px;height:26px;border-radius:50%;background:var(--brand-secondary);box-shadow:0 0 0 7px color-mix(in srgb, var(--brand-secondary) 18%, transparent)}
     .num{position:absolute;top:70px;right:130px;font-size:28px;font-weight:700;color:rgba(255,255,255,0.4)}
     .logo{position:absolute;bottom:70px;right:130px;font-size:30px;font-weight:700;color:rgba(255,255,255,0.55)}
   </style></head><body>${sections}</body></html>`;
@@ -1127,7 +1137,7 @@ function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW =
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [events.length]);
 
-  const previewSrc = `${AGENT_URL}/ws/${sessionKey}/index.html?t=${previewKey}`;
+  const previewSrc = useWsPreviewSrc(sessionKey, previewKey);
 
   // Layout del preview: split (avatar + panel) o deck/slide full (scrolleable).
   const DISP_H = 351;
@@ -1170,7 +1180,7 @@ function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW =
         <textarea
           value={instruction}
           onChange={(e) => setDraft(sessionKey, e.target.value)}
-          placeholder="Ej: Poné un fondo más claro, el título en amarillo Davivienda, agregá un ícono por bullet y más aire entre líneas."
+          placeholder="Ej: Poné un fondo más claro, el título en el color de acento de la marca, agregá un ícono por bullet y más aire entre líneas."
           className="h-20 w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm focus:border-red-500 focus:outline-none"
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -1212,6 +1222,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
   onGenerateAudio: () => void;
   onGenerateVideo: () => void;
 }) {
+  const { company } = useCompany();
   const isVideoAvatar = item.tipo_recurso === "Video avatar";
   const voiceover = guion.contenido.voiceover || guion.contenido.texto;
 
@@ -1225,7 +1236,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
     : 1;
   const [panelHtml, setPanelHtml] = useState<string>(
     () => (guion.contenido.panel_html as string) ||
-      (isVideoAvatar ? buildAvatarPanelHtml(guion, item.recurso) : buildDeckHtml(guion, item.recurso))
+      (isVideoAvatar ? buildAvatarPanelHtml(guion, item.recurso, company) : buildDeckHtml(guion, item.recurso, company))
   );
 
   const handleCompose = async () => {
@@ -1553,6 +1564,7 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
+  const { company } = useCompany();
   const { contenido } = guion;
   const tipo = item.tipo_recurso;
   const [interactiveTabIndex, setInteractiveTabIndex] = useState(0);
@@ -1579,7 +1591,7 @@ function ResourcePreview({ item, guion }: { item: MallaItem; guion: Guion }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => openComponentsInNewTab(contenido, item.recurso)}
+            onClick={() => openComponentsInNewTab(contenido, item.recurso, company)}
           >
             Ver SCORM final ↗
           </Button>
@@ -2190,15 +2202,11 @@ function IterationChat({ guion, tipo, mallaId, history, onHistoryUpdate, onUpdat
     let isMounted = true;
     const probe = async () => {
       try {
-        const res = await fetch(ITERAR_GUION_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            modo: "analizar_intencion",
-            feedback: "ping",
-            tipo_recurso: tipo,
-            contenido_actual: {},
-          }),
+        const res = await iterarGuionRequest({
+          modo: "analizar_intencion",
+          feedback: "ping",
+          tipo_recurso: tipo,
+          contenido_actual: {},
         });
         const result = await res.json().catch(() => null);
         const supported = Boolean(res.ok && result?.ok && result?.modo === "analizar_intencion");
@@ -2508,17 +2516,13 @@ function IterationChat({ guion, tipo, mallaId, history, onHistoryUpdate, onUpdat
     if (!intentModeSupported) return null;
 
     try {
-      const res = await fetch(ITERAR_GUION_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modo: "analizar_intencion",
-          malla_id: mallaId,
-          guion_id: guion.id,
-          feedback: rawMessage,
-          tipo_recurso: tipo,
-          contenido_actual: guion.contenido,
-        }),
+      const res = await iterarGuionRequest({
+        modo: "analizar_intencion",
+        malla_id: mallaId,
+        guion_id: guion.id,
+        feedback: rawMessage,
+        tipo_recurso: tipo,
+        contenido_actual: guion.contenido,
       });
       const result = await res.json();
       if (!res.ok || !result?.ok || result?.modo !== "analizar_intencion") return null;
@@ -3008,11 +3012,7 @@ CONVERSION DE FORMATO (permitida):
         contenido_actual: guion.contenido,
       };
 
-      const res = await fetch(ITERAR_GUION_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const res = await iterarGuionRequest(payload);
 
       const result = await res.json();
       if (!res.ok || result.error) {

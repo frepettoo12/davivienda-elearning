@@ -87,6 +87,14 @@ COURSE_TYPE_PROFILES = {
 }
 
 
+def _empresa_desc(empresa: Dict[str, Any] | None) -> str:
+    """Descripción de la empresa para los prompts. Default legacy: Davivienda."""
+    if empresa and empresa.get("nombre"):
+        industria = empresa.get("industria") or empresa.get("descripcion_prompt") or ""
+        return f"{empresa['nombre']} ({industria})" if industria else empresa["nombre"]
+    return "Davivienda (banco colombiano)"
+
+
 def generar_malla(
     nombre: str,
     course_type: str,
@@ -97,6 +105,7 @@ def generar_malla(
     temas: str,
     requiere_eval: bool = True,
     documentacion: str = "",
+    empresa: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Genera una malla curricular usando GPT-4.
@@ -115,7 +124,7 @@ def generar_malla(
     course_type = (course_type or "compliance").strip().lower()
     profile = COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
 
-    prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de Davivienda (banco colombiano).
+    prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de {_empresa_desc(empresa)}.
 
 SOLICITUD DE CURSO:
 - Nombre: {nombre}
@@ -204,6 +213,7 @@ def iterar_malla(
     malla_actual: List[Dict[str, Any]],
     feedback: str,
     course_type: str = "compliance",
+    empresa: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Regenera la malla incorporando el feedback del usuario.
@@ -218,7 +228,7 @@ def iterar_malla(
     course_type = (course_type or "compliance").strip().lower()
     profile = COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
 
-    prompt = f"""Eres un experto en Diseño Instruccional.
+    prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de {_empresa_desc(empresa)}.
 
 MALLA ACTUAL:
 {json.dumps(malla_actual, indent=2, ensure_ascii=False)}

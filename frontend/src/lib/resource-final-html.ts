@@ -2,6 +2,7 @@ import type { Guion } from "@/lib/api";
 import { generateResourceHTML } from "@/lib/resource-renderer";
 import { generateFullHTML, type ComponentContentWithConfig } from "@/lib/component-html-generator";
 import { isComponentContent } from "@/lib/component-renderer";
+import { Brand, DEFAULT_BRAND } from "@/lib/brand";
 
 /**
  * HTML final de un recurso (la "realidad" que se previsualiza y se empaqueta en SCORM):
@@ -16,7 +17,7 @@ video{max-width:100%;max-height:100vh}</style></head>
 <body><video src="${url}" controls playsinline></video></body></html>`;
 }
 
-export function resourceFinalHtml(guion: Guion, tipo: string, titulo?: string): string {
+export function resourceFinalHtml(guion: Guion, tipo: string, titulo?: string, brand: Brand = DEFAULT_BRAND): string {
   // Video: usa el compuesto (split/slides) si existe; si no, el avatar/video crudo.
   if (tipo === "Video" || tipo === "Video avatar") {
     const c = guion.contenido as { composed_url?: string; video_url?: string };
@@ -29,7 +30,7 @@ export function resourceFinalHtml(guion: Guion, tipo: string, titulo?: string): 
     return guion.contenido.html;
   }
   if (isComponentContent(guion.contenido)) {
-    return generateFullHTML(guion.contenido as unknown as ComponentContentWithConfig, titulo);
+    return generateFullHTML(guion.contenido as unknown as ComponentContentWithConfig, titulo, brand);
   }
-  return generateResourceHTML(guion, tipo);
+  return generateResourceHTML(guion, tipo, brand);
 }

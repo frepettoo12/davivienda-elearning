@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { listarSolicitudes, obtenerMalla, empaquetarScorm, obtenerScormShell, guardarScormShell, AGENT_URL, SolicitudListItem, MallaItem, Guion, type ScormRecurso } from "@/lib/api";
 import { resourceFinalHtml } from "@/lib/resource-final-html";
+import { useCompany, useWsPreviewSrc } from "@/contexts/CompanyContext";
 import { useAgentJobs } from "@/contexts/AgentJobsContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +45,7 @@ function ShellEditor({ sessionKey, seedHtml, onHtmlChange }: {
   }, [job?.htmlVersion]);
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [events.length]);
 
-  const previewSrc = `${AGENT_URL}/ws/${sessionKey}/index.html?t=${previewKey}`;
+  const previewSrc = useWsPreviewSrc(sessionKey, previewKey);
   return (
     <div className="rounded-lg border bg-white">
       <div className="flex items-center gap-2 border-b px-3 py-2">
@@ -92,6 +93,7 @@ function ShellEditor({ sessionKey, seedHtml, onHtmlChange }: {
 }
 
 export default function ScormPage() {
+  const { company } = useCompany();
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
@@ -162,7 +164,7 @@ export default function ScormPage() {
     setDownloadUrl(null);
     try {
       const cursoNombre = enProcesoList.find(s => s.malla_id === mallaId)?.curso_nombre
-        || mallaItems[0]?.bloque || "Curso Davivienda";
+        || mallaItems[0]?.bloque || `Curso ${company.nombre}`;
       // Por cada recurso: su HTML final (editado o generado) o el video.
       const recursos: ScormRecurso[] = mallaItems.map((item, i) => {
         const guion = guiones.find(g => g.id === item.id);
@@ -173,7 +175,7 @@ export default function ScormPage() {
         if ((item.tipo_recurso === "Video" || item.tipo_recurso === "Video avatar") && videoUrl) {
           return { ...base, video_url: videoUrl };
         }
-        return { ...base, html: guion ? resourceFinalHtml(guion, item.tipo_recurso, item.recurso) : undefined };
+        return { ...base, html: guion ? resourceFinalHtml(guion, item.tipo_recurso, item.recurso, company) : undefined };
       });
 
       const result = await empaquetarScorm({
@@ -198,7 +200,7 @@ export default function ScormPage() {
     if (!shellHtml) return;
     const resources = mallaItems.map((item) => {
       const guion = guiones.find((g) => g.id === item.id);
-      const html = guion ? resourceFinalHtml(guion, item.tipo_recurso, item.recurso) : `<h1>${item.recurso}</h1>`;
+      const html = guion ? resourceFinalHtml(guion, item.tipo_recurso, item.recurso, company) : `<h1>${item.recurso}</h1>`;
       const file = "data:text/html;charset=utf-8," + encodeURIComponent(html);
       return { titulo: item.recurso, bloque: item.bloque, tipo: item.tipo_recurso, file };
     });

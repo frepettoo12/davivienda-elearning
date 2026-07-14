@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AGENT_URL } from "@/lib/api";
+import { AGENT_URL, authHeaders } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
 type Ev = { id: number; cls: string; icon: string; text: string };
@@ -14,7 +14,7 @@ const MODELS = [
 
 export default function EditorPage() {
   const [instruction, setInstruction] = useState(
-    "Hacé el header sticky, agregá el meta viewport que falta y arreglá el overflow horizontal en mobile. Mejorá la estética manteniendo la marca Davivienda."
+    "Hacé el header sticky, agregá el meta viewport que falta y arreglá el overflow horizontal en mobile. Mejorá la estética manteniendo la marca de la empresa."
   );
   const [model, setModel] = useState("claude-sonnet-4-6");
   const [events, setEvents] = useState<Ev[]>([]);
@@ -60,7 +60,7 @@ export default function EditorPage() {
     try {
       const resp = await fetch(`${AGENT_URL}/agent/edit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ instruction, model }),
       });
       if (!resp.body) throw new Error("Sin stream de respuesta");

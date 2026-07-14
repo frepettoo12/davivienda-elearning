@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { runAgent } from "./agent.mjs";
 import { composeSplit, composeSlides, COMPOSED_ROOT } from "./compose.mjs";
+import { requireAuth, brandOf, DEFAULT_COMPANY_ID } from "./tenant.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,11 +38,14 @@ const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || resolve(__dirname, "works
 // Sanitiza el sessionKey para que no escape del directorio de workspaces.
 const safeKey = (k) => String(k).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
 
-// Resuelve el cwd de una edición: workspace por recurso (con seed) o el WORKDIR
-// del playground si no viene sessionKey (compatibilidad con el demo standalone).
-function resolveWorkspace({ sessionKey, seedHtml }) {
+// Resuelve el cwd de una edición: workspace por empresa+recurso (con seed) o el
+// WORKDIR del playground si no viene sessionKey (compatibilidad con el demo).
+// Multi-tenant: workspaces/{companyId}/{sessionKey} — dos empresas nunca
+// comparten árbol. Los workspaces legacy (sin companyId) quedan huérfanos y se
+// re-siembran desde contenido.html en la próxima edición (cache regenerable).
+function resolveWorkspace({ companyId, sessionKey, seedHtml }) {
   if (!sessionKey) return WORKDIR;
-  const dir = resolve(WORKSPACES_ROOT, safeKey(sessionKey));
+  const dir = resolve(WORKSPACES_ROOT, safeKey(companyId || DEFAULT_COMPANY_ID), safeKey(sessionKey));
   mkdirSync(dir, { recursive: true });
   const indexPath = resolve(dir, "index.html");
   // Sembrar solo si el workspace aún no tiene el HTML (primera edición o tras
@@ -90,10 +94,16 @@ function inlineAssets(html, cwd) {
   });
 }
 
-// CORS: permite que el dashboard Next.js (localhost:3001) llame al servicio.
-// En producción restringir a tu dominio (Fase 3 hardening).
+// CORS: por env ALLOWED_ORIGINS (coma-separado); default * para local.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*").split(",").map((s) => s.trim());
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes("*")) {
+    res.header("Access-Control-Allow-Origin", "*");
+  } else if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+  }
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -103,22 +113,37 @@ app.use((req, res, next) => {
 // UI local del playground (Fase 2 local) y preview del proyecto editado.
 app.use(express.static(resolve(__dirname, "public")));
 app.use("/workspace", express.static(WORKDIR, { etag: false, lastModified: false, cacheControl: false }));
-// Preview en vivo de los workspaces por recurso: /ws/{key}/index.html
-app.use("/ws", express.static(WORKSPACES_ROOT, { etag: false, lastModified: false, cacheControl: false }));
+// Preview en vivo de los workspaces por recurso: /ws/{companyId}/{key}/index.html
+// Auth por header o ?auth= (iframes) + tenancy: solo el árbol de tu empresa.
+app.use(
+  "/ws/:companyId",
+  requireAuth,
+  (req, res, next) => {
+    if (req.company?.id !== req.params.companyId) return res.sendStatus(403);
+    express.static(resolve(WORKSPACES_ROOT, safeKey(req.params.companyId)), {
+      etag: false,
+      lastModified: false,
+      cacheControl: false,
+    })(req, res, next);
+  }
+);
 // Videos compuestos (Opción C: avatar + slides HTML + FFmpeg)
 app.use("/composed", express.static(COMPOSED_ROOT, { etag: false, lastModified: false, cacheControl: false }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Sufijo aleatorio para que las URLs públicas de Storage no sean adivinables.
+const randSuffix = () => Math.random().toString(36).slice(2, 10);
+
 // POST /compose/split — avatar HeyGen + HTML branded → MP4 split (35% avatar / 65% contenido)
-app.post("/compose/split", async (req, res) => {
+app.post("/compose/split", requireAuth, async (req, res) => {
   const { avatarUrl, contentHtml, id } = req.body || {};
   if (!avatarUrl || typeof avatarUrl !== "string") {
     return res.status(400).json({ error: "Falta 'avatarUrl'" });
   }
-  const safeId = String(id || `v${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeId = `${String(id || `v${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 70)}_${randSuffix()}`;
   try {
-    const { rel, storageUrl } = await composeSplit({ avatarUrl, contentHtml, id: safeId });
+    const { rel, storageUrl } = await composeSplit({ avatarUrl, contentHtml, id: safeId, companyId: req.company?.id });
     res.json({ ok: true, url: storageUrl || `/composed/${rel}`, rel });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
@@ -126,26 +151,26 @@ app.post("/compose/split", async (req, res) => {
 });
 
 // POST /compose/slides — slide HTML full-screen + audio → MP4 (sin avatar)
-app.post("/compose/slides", async (req, res) => {
+app.post("/compose/slides", requireAuth, async (req, res) => {
   const { audioUrl, contentHtml, slideCount, id } = req.body || {};
   if (!audioUrl || typeof audioUrl !== "string") {
     return res.status(400).json({ error: "Falta 'audioUrl'" });
   }
-  const safeId = String(id || `s${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeId = `${String(id || `s${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 70)}_${randSuffix()}`;
   try {
-    const { rel, storageUrl } = await composeSlides({ audioUrl, contentHtml, slideCount, id: safeId });
+    const { rel, storageUrl } = await composeSlides({ audioUrl, contentHtml, slideCount, id: safeId, companyId: req.company?.id });
     res.json({ ok: true, url: storageUrl || `/composed/${rel}`, rel });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
   }
 });
 
-app.post("/agent/edit", async (req, res) => {
+app.post("/agent/edit", requireAuth, async (req, res) => {
   const { instruction, model, resume, sessionKey, seedHtml, images } = req.body || {};
   if (!instruction || typeof instruction !== "string") {
     return res.status(400).json({ error: "Falta 'instruction'" });
   }
-  const cwd = resolveWorkspace({ sessionKey, seedHtml });
+  const cwd = resolveWorkspace({ companyId: req.company?.id, sessionKey, seedHtml });
 
   // Guardar imágenes adjuntas y avisarle al agente que las tiene disponibles.
   const savedImgs = saveImages(cwd, images);
@@ -163,8 +188,9 @@ app.post("/agent/edit", async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    const summary = await runAgent({ instruction: fullInstruction, cwd, model, resume }, (e) =>
-      send(e.kind, e)
+    const summary = await runAgent(
+      { instruction: fullInstruction, cwd, model, resume, brand: brandOf(req.company) },
+      (e) => send(e.kind, e)
     );
     // Devolvemos el HTML resultante (con imágenes embebidas) para que el frontend lo
     // persista y funcione fuera del workspace (srcDoc, composición, SCORM).

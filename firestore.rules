@@ -1,9 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Por ahora permitir todo (ajustar cuando agreguemos auth)
+    // Multi-tenant: TODO el acceso a datos pasa por Cloud Functions (Admin SDK,
+    // que bypasea estas reglas). El frontend no usa el SDK de Firestore.
+    // Cerrado por completo para clientes.
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

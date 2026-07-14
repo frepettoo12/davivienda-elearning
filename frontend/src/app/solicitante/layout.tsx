@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/contexts/CompanyContext";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
@@ -31,6 +31,7 @@ export default function SolicitanteLayout({
   children: React.ReactNode;
 }) {
   const { role, loading, signOut } = useAuth();
+  const { company } = useCompany();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -63,16 +64,16 @@ export default function SolicitanteLayout({
       <header className="border-b bg-white">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-4">
-            <Image
-              src="/davivienda-logo.png"
-              alt="Davivienda"
-              width={40}
-              height={40}
+            {/* img plano (no next/image): el logo puede ser una URL externa del tenant */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={company.logoUrl || "/davivienda-logo.png"}
+              alt={company.nombre}
               className="h-10 w-10 object-contain"
             />
             <div>
               <h1 className="font-semibold text-gray-900">E-Learning</h1>
-              <p className="text-xs text-gray-500">Davivienda</p>
+              <p className="text-xs text-gray-500">{company.nombre}</p>
             </div>
           </div>
 

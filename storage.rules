@@ -1,18 +1,11 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Permitir lectura pública de audio y video
-    match /audio/{fileName} {
-      allow read: if true;
-      allow write: if true;  // Ajustar cuando agreguemos auth
-    }
-    match /video/{fileName} {
-      allow read: if true;
-      allow write: if true;
-    }
-    match /scorm/{fileName} {
-      allow read: if true;
-      allow write: if true;
+    // Multi-tenant: los uploads los hacen las Cloud Functions / agent-service
+    // con Admin SDK (bypasea reglas) y la lectura pública va por ACL de GCS
+    // (make_public), no por estas reglas. Cerrado para clientes.
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

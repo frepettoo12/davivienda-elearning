@@ -310,6 +310,28 @@ DEFAULT_SHELL = (
 )
 
 
+def default_shell_for(company: dict | None) -> str:
+    """DEFAULT_SHELL con el branding de la empresa (multi-tenant).
+
+    El shell se construye por concatenación de strings, así que el rebranding se
+    hace con replaces acotados sobre los valores Davivienda del template. El
+    marcador `/* === DAVIVIENDA:COURSE === */` NO se toca: es un token
+    estructural (regex _COURSE_RE + shells ya persistidos).
+    """
+    if not company:
+        return DEFAULT_SHELL
+    b = company.get("branding") or {}
+    nombre = company.get("nombre") or "Davivienda"
+    primario = b.get("color_primario") or "#DA291C"
+    acento = b.get("color_acento") or "#FFD700"
+    shell = DEFAULT_SHELL
+    # Replace global: los hex de Davivienda aparecen en el :root y también en el
+    # contenido de muestra del bloque COURSE.
+    shell = shell.replace("#DA291C", primario).replace("#FFD700", acento)
+    shell = shell.replace("Curso Davivienda", _html.escape(f"Curso {nombre}"))
+    return shell
+
+
 def _player_index(curso_nombre: str, resources_js: str) -> str:
     """index.html del player (shell con menú, iframe, nav y branding Davivienda)."""
     title = _html.escape(curso_nombre)
@@ -376,13 +398,13 @@ def _player_index(curso_nombre: str, resources_js: str) -> str:
     )
 
 
-def _manifest(curso_nombre: str, mastery: int, all_files: list[str]) -> str:
+def _manifest(curso_nombre: str, mastery: int, all_files: list[str], identifier: str = "davivienda_scorm") -> str:
     title = _html.escape(curso_nombre)
     files_xml = "\n".join(
         f'            <file href="{_html.escape(f)}"/>' for f in all_files
     )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
-<manifest identifier="davivienda_scorm" version="1.0"
+<manifest identifier="{_html.escape(identifier)}" version="1.0"
     xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"
     xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -468,9 +490,14 @@ video{max-width:100%;max-height:100vh}</style></head>
     )
 
 
-def empaquetar_scorm(payload: dict[str, Any]) -> bytes:
-    """Construye el zip SCORM en memoria y devuelve sus bytes."""
-    curso_nombre = payload.get("curso_nombre") or "Curso Davivienda"
+def empaquetar_scorm(payload: dict[str, Any], company: dict | None = None) -> bytes:
+    """Construye el zip SCORM en memoria y devuelve sus bytes.
+
+    company (doc de companies/{id}): brandea los defaults (nombre del curso,
+    shell, identifier del manifest). None = comportamiento legacy Davivienda.
+    """
+    empresa_nombre = (company or {}).get("nombre") or "Davivienda"
+    curso_nombre = payload.get("curso_nombre") or f"Curso {empresa_nombre}"
     mastery = int(payload.get("passing_score") or 70)
     recursos = payload.get("recursos") or []
 
@@ -498,14 +525,15 @@ def empaquetar_scorm(payload: dict[str, Any]) -> bytes:
 
     # Shell self-contained (CSS + lógica + COURSE inline). El editado (shell_html) o el
     # por defecto; se le inyecta el bloque COURSE con los recursos reales.
-    shell = payload.get("shell_html") or DEFAULT_SHELL
+    shell = payload.get("shell_html") or default_shell_for(company)
     index_html = inject_course(shell, resources_js, mastery, curso_nombre)
 
     all_files = (
         [f"resources/{n}" for n in page_blobs]
         + [f"assets/{n}" for n in asset_blobs]
     )
-    manifest = _manifest(curso_nombre, mastery, all_files)
+    identifier = ((company or {}).get("scorm") or {}).get("manifest_identifier") or "davivienda_scorm"
+    manifest = _manifest(curso_nombre, mastery, all_files, identifier=identifier)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
