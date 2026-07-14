@@ -1258,6 +1258,24 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
   van a `companies/{company_id}/...` (`_storage_prefix()` en main.py). Sigue `make_public()`
   (URLs embebidas en cursos por tiempo indefinido; revisable v2).
 
+### Superadmin (jul 2026)
+- `config/platform.superadmin_emails` (Firestore) = emails con acceso cross-tenant (hoy:
+  federico@alkemy.org). Entran como rol learning a CUALQUIER empresa y cambian con el selector
+  "Empresa activa" del sidebar → manda header `X-Company-Id` (authHeaders lo agrega desde
+  `localStorage.actingCompany`; el backend solo lo respeta si el email es superadmin).
+- agent-service: mismo mecanismo (header o `?company=`); `/ws/:companyId` permite cualquier
+  empresa al superadmin. Agregar superadmins = editar el array en el doc (cache 5 min).
+
+### Empresas desde Google Sheet (jul 2026)
+- Fuente: Sheet "Empresas AI Learning Studio" (ID en `functions/.env` COMPANIES_SHEET_ID,
+  dueño jeanpierre@alkemy.org). El cron `sync_companies_sheet` (cada 15 min) baja el CSV
+  export y upsertea `companies/{id}` — fila nueva = empresa dada de alta sola.
+- ⚠️ El sheet DEBE estar compartido "cualquiera con el enlace: Lector" (el export CSV es un
+  fetch sin credenciales); si no, el cron loguea el error y no toca nada.
+- El sync nunca pisa `scorm.shell_html` (se edita en el dashboard). `scripts/companies.xlsx`
+  + `seed_companies.py --excel` quedan como vía manual/local alternativa.
+- Empresas activas: davivienda + achs (achs.cl, verde #009540).
+
 ### Onboarding de un cliente nuevo (sin código)
 1. Agregar el doc en `COMPANIES` de `scripts/seed_companies.py` (o `--file cliente.json`) y correr.
 2. Si usan Google Workspace propio: agregar dominio a authorized domains de Firebase Auth.
