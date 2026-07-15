@@ -1277,6 +1277,19 @@ La plataforma dejó de ser Davivienda-only: una sola instancia sirve a N empresa
 - ⚠️ El sync del sheet SOLO CREA empresas nuevas (no actualiza existentes) para no pisar lo
   editado en Configuración. Editar una empresa existente = dashboard, no el sheet.
 
+### Templates de malla (jul 2026)
+- Colección **`templates`** (Firestore) reemplaza a los COURSE_TYPE_PROFILES hardcodeados:
+  5 globales seedeados (company_id null; lazy-seed en `core/templates.py.ensure_seed`) +
+  templates propios por empresa. Campos: nombre, **descripcion ("cuándo usarlo" — la IA
+  elige leyendo esto)**, focus, estructura[], resource_mix, gamification, activo.
+- Sección `/dashboard/templates`: CRUD; "Duplicar para {empresa}" clona un global; globales
+  solo los edita superadmin (backend lo valida).
+- **Flujo con validación humana**: en Malla, "Generar" → `sugerir_template` (GPT elige por
+  la descripcion + solicitud, devuelve razón/confianza/alternativa) → el humano confirma o
+  cambia → `crear_malla` con `template_id`. El doc de malla guarda un snapshot del template
+  y `iterar_malla` lo reutiliza.
+- Los perfiles hardcodeados quedan como fallback si no viene template_id (compat).
+
 ### Empresas desde Google Sheet (jul 2026)
 - Fuente: Sheet "Empresas AI Learning Studio" (ID en `functions/.env` COMPANIES_SHEET_ID,
   dueño jeanpierre@alkemy.org). El cron `sync_companies_sheet` (cada 15 min) baja el CSV
