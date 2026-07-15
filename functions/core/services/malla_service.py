@@ -106,6 +106,7 @@ def generar_malla(
     requiere_eval: bool = True,
     documentacion: str = "",
     empresa: Dict[str, Any] | None = None,
+    template: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Genera una malla curricular usando GPT-4.
@@ -122,7 +123,9 @@ def generar_malla(
         docs_section = f"\n\nDOCUMENTACIÓN DE REFERENCIA:{documentacion[:8000]}"
 
     course_type = (course_type or "compliance").strip().lower()
-    profile = COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
+    # Template validado por el humano (Firestore) o, legacy, el perfil hardcodeado
+    # del arquetipo elegido en la solicitud.
+    profile = template or COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
 
     prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de {_empresa_desc(empresa)}.
 
@@ -214,6 +217,7 @@ def iterar_malla(
     feedback: str,
     course_type: str = "compliance",
     empresa: Dict[str, Any] | None = None,
+    template: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Regenera la malla incorporando el feedback del usuario.
@@ -226,7 +230,7 @@ def iterar_malla(
         return None, "Falta OPENAI_API_KEY"
 
     course_type = (course_type or "compliance").strip().lower()
-    profile = COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
+    profile = template or COURSE_TYPE_PROFILES.get(course_type, COURSE_TYPE_PROFILES["compliance"])
 
     prompt = f"""Eres un experto en Diseño Instruccional para e-learning corporativo de {_empresa_desc(empresa)}.
 

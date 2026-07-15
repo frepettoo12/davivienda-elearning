@@ -150,6 +150,15 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
     except Exception as e:
         return _error(f"Invalid request: {e}")
 
+    # Template validado por el humano (opcional): manda sobre el arquetipo legacy.
+    from core import templates as templates_svc
+    template_doc = None
+    template_id = (data.get("template_id") or "").strip() if isinstance(data, dict) else ""
+    if template_id:
+        template_doc = templates_svc.get_template(get_db(), template_id, ctx.company_id)
+        if not template_doc:
+            return _error("Template not found", 404)
+
     # Generar malla con GPT-4
     malla, error = generar_malla(
         nombre=solicitud.nombre,
@@ -162,6 +171,7 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
         requiere_eval=solicitud.requiere_eval,
         documentacion=solicitud.documentacion or "",
         empresa=ctx.company,
+        template=templates_svc.template_for_prompt(template_doc) if template_doc else None,
     )
 
     if error:
@@ -175,6 +185,11 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
     doc_data = {
         "company_id": ctx.company_id,
         "solicitud": solicitud.model_dump(),
+        # Snapshot del template usado (para iterar con el mismo criterio).
+        "template": (
+            {"id": template_doc["id"], **templates_svc.template_for_prompt(template_doc)}
+            if template_doc else None
+        ),
         "version": 1,
         "malla": malla,
         "duracion_total": duracion_total,
@@ -260,12 +275,13 @@ def iterar_malla_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_f
         return _error("Malla not found", 404)
     malla_actual = doc_data.get("malla", [])
 
-    # Regenerar con feedback
+    # Regenerar con feedback (con el mismo template con el que se generó, si hubo)
     nueva_malla, error = iterar_malla(
         malla_actual,
         iterar_req.feedback,
         course_type=doc_data.get("solicitud", {}).get("course_type", "compliance"),
         empresa=ctx.company,
+        template=doc_data.get("template") or None,
     )
 
     if error:
@@ -1377,6 +1393,157 @@ def empaquetar_scorm_endpoint(req: https_fn.Request, ctx: RequestContext) -> htt
         "download_url": blob.public_url,
         "size": len(zip_bytes),
         "recursos": len(payload.get("recursos", [])),
+    })
+
+
+# ============== TEMPLATES DE MALLA ==============
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def listar_templates(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """GET /templates - Templates de diseño instruccional visibles para la
+    empresa activa (globales + propios)."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+    from core import templates as templates_svc
+    items = templates_svc.list_templates(get_db(), ctx.company_id)
+    return _response({"templates": items, "total": len(items)})
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def guardar_template(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """PUT /templates - Crea o edita un template.
+
+    Body: { id?, nombre, descripcion, focus, estructura[4], resource_mix,
+            gamification, activo? }
+    Los templates globales (company_id null) solo los edita un superadmin; los
+    de la empresa, su equipo Learning. Un template nuevo nace de la empresa
+    activa (o global si lo crea un superadmin con scope="global")."""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json() or {}
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    nombre = str(data.get("nombre") or "").strip()
+    if not nombre:
+        return _error("Falta 'nombre'")
+    estructura = [str(s).strip() for s in (data.get("estructura") or []) if str(s).strip()]
+    if not estructura:
+        return _error("Falta 'estructura' (lista de pasos)")
+
+    doc = {
+        "nombre": nombre,
+        "descripcion": str(data.get("descripcion") or "").strip(),
+        "focus": str(data.get("focus") or "").strip(),
+        "estructura": estructura[:6],
+        "resource_mix": str(data.get("resource_mix") or "").strip(),
+        "gamification": str(data.get("gamification") or "").strip(),
+        "activo": bool(data.get("activo", True)),
+        "updated_at": SERVER_TIMESTAMP,
+    }
+
+    template_id = (data.get("id") or "").strip()
+    db = get_db()
+    if template_id:
+        snap = db.collection("templates").document(template_id).get()
+        if not snap.exists:
+            return _error("Template not found", 404)
+        owner = (snap.to_dict() or {}).get("company_id")
+        if owner is None and not ctx.is_superadmin:
+            return _error("Solo un superadmin puede editar templates globales", 403)
+        if owner is not None and owner != ctx.company_id:
+            return _error("Template not found", 404)
+        db.collection("templates").document(template_id).set(doc, merge=True)
+        return _response({"ok": True, "id": template_id})
+
+    # Alta: de la empresa activa, o global si lo pide un superadmin.
+    doc["company_id"] = None if (data.get("scope") == "global" and ctx.is_superadmin) else ctx.company_id
+    doc["created_at"] = SERVER_TIMESTAMP
+    ref = db.collection("templates").document()
+    ref.set(doc)
+    return _response({"ok": True, "id": ref.id}, 201)
+
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+@require_auth(roles={"learning"})
+def sugerir_template(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /templates/sugerir - La IA lee la solicitud y sugiere qué template
+    usar para la malla. El humano valida (o elige otro) antes de generar.
+
+    Body: { curso: {nombre, audiencia, nivel, objetivo, temas, duracion_min, requiere_eval} }
+    Devuelve: { template_id, nombre, razon, confianza, alternativa_id? }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+
+    try:
+        data = req.get_json() or {}
+        curso = data.get("curso") or {}
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not curso.get("nombre"):
+        return _error("Falta 'curso'")
+
+    from core import templates as templates_svc
+    items = templates_svc.list_templates(get_db(), ctx.company_id)
+    if not items:
+        return _error("No hay templates disponibles", 500)
+
+    from openai import OpenAI
+    from core.config import get_openai_key
+    api_key = get_openai_key()
+    if not api_key:
+        return _error("Missing OPENAI_API_KEY", 500)
+
+    catalogo = "\n".join(
+        f'- id: {t["id"]} | {t["nombre"]}: {t.get("descripcion") or t.get("focus", "")}'
+        for t in items
+    )
+    prompt = f"""Sos un diseñador instruccional. Elegí el template de curso más adecuado para esta solicitud.
+
+SOLICITUD:
+- Curso: {curso.get('nombre')}
+- Audiencia: {curso.get('audiencia', '')}
+- Nivel: {curso.get('nivel', '')}
+- Objetivo: {curso.get('objetivo', '')}
+- Temas: {str(curso.get('temas', ''))[:1500]}
+- Duración: {curso.get('duracion_min', '')} min
+- Requiere evaluación: {curso.get('requiere_eval', True)}
+
+TEMPLATES DISPONIBLES:
+{catalogo}
+
+Respondé SOLO JSON:
+{{"template_id": "id elegido", "razon": "una frase clara para un humano de por qué este template", "confianza": 0.0, "alternativa_id": "segundo mejor id o null"}}"""
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=30.0)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Responde SOLO JSON válido, sin markdown."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+        )
+        resultado = json.loads(_strip_markdown_json(response.choices[0].message.content))
+    except Exception as e:
+        return _error(f"Error sugiriendo template: {e}", 500)
+
+    ids = {t["id"]: t for t in items}
+    tid = str(resultado.get("template_id") or "")
+    if tid not in ids:
+        tid = items[0]["id"]
+    alt = str(resultado.get("alternativa_id") or "")
+    return _response({
+        "template_id": tid,
+        "nombre": ids[tid]["nombre"],
+        "razon": str(resultado.get("razon") or "").strip(),
+        "confianza": max(0.0, min(1.0, float(resultado.get("confianza") or 0))),
+        "alternativa_id": alt if alt in ids and alt != tid else None,
     })
 
 

@@ -10,9 +10,13 @@ import {
   guardarMalla,
   actualizarSolicitud,
   listarSolicitudes,
+  listarTemplates,
+  sugerirTemplate,
   Solicitud,
   MallaItem,
+  MallaTemplate,
   SolicitudListItem,
+  TemplateSugerencia,
   COURSE_TYPE_CONFIG,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -66,6 +70,12 @@ export default function MallaPage() {
   const [mallaId, setMallaId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  // Selección de template: la IA sugiere, el humano valida (o cambia) y recién
+  // ahí se genera la malla.
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const [sugerencia, setSugerencia] = useState<TemplateSugerencia | null>(null);
+  const [templates, setTemplates] = useState<MallaTemplate[]>([]);
+  const [templateElegido, setTemplateElegido] = useState<string>("");
   const [iterating, setIterating] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +126,27 @@ export default function MallaPage() {
     }
   };
 
+  // Paso 1: la IA lee la solicitud y sugiere qué template usar.
+  const handleSuggestTemplate = async () => {
+    if (!solicitud) return;
+    setSugiriendo(true);
+    setError(null);
+    try {
+      const [sug, tpls] = await Promise.all([
+        sugerirTemplate(solicitud.curso),
+        listarTemplates(),
+      ]);
+      setTemplates(tpls.templates);
+      setSugerencia(sug);
+      setTemplateElegido(sug.template_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error sugiriendo template");
+    } finally {
+      setSugiriendo(false);
+    }
+  };
+
+  // Paso 2 (tras validación humana del template): generar la malla.
   const handleGenerateMalla = async () => {
     if (!solicitud) return;
     setGenerating(true);
@@ -124,6 +155,7 @@ export default function MallaPage() {
       const result = await crearMalla({
         solicitud_id: solicitud.id,
         curso: solicitud.curso,
+        template_id: templateElegido || undefined,
       });
       setMallaId(result.id);
       setMallaItems(result.malla);
@@ -355,25 +387,85 @@ export default function MallaPage() {
                     </div>
                   </div>
                 )}
-                <Button
-                  onClick={handleGenerateMalla}
-                  disabled={generating}
-                  className="w-full bg-red-600 hover:bg-red-700"
-                >
-                  {generating ? (
-                    <span className="flex items-center gap-2">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      Generando malla con IA...
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      Generar Malla con IA
-                    </span>
-                  )}
-                </Button>
+                {!sugerencia ? (
+                  <Button
+                    onClick={handleSuggestTemplate}
+                    disabled={sugiriendo}
+                    className="w-full bg-brand hover:bg-brand/90"
+                  >
+                    {sugiriendo ? (
+                      <span className="flex items-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Analizando la solicitud...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Generar Malla con IA
+                      </span>
+                    )}
+                  </Button>
+                ) : (
+                  /* Validación humana del template sugerido por la IA */
+                  <div className="space-y-4 rounded-lg border-2 border-brand/30 bg-brand/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">🤖</span>
+                      <div>
+                        <p className="font-semibold text-gray-900">
+                          La IA sugiere el template: {sugerencia.nombre}
+                          <span className="ml-2 text-xs font-normal text-gray-500">
+                            confianza {Math.round(sugerencia.confianza * 100)}%
+                          </span>
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">{sugerencia.razon}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Template a usar (podés cambiarlo)
+                      </label>
+                      <select
+                        value={templateElegido}
+                        onChange={(e) => setTemplateElegido(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.nombre}
+                            {t.id === sugerencia.template_id ? " (sugerido)" : ""}
+                            {t.id === sugerencia.alternativa_id ? " (alternativa)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {templates.find((t) => t.id === templateElegido) && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          {templates.find((t) => t.id === templateElegido)?.descripcion}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleGenerateMalla}
+                        disabled={generating}
+                        className="flex-1 bg-brand hover:bg-brand/90"
+                      >
+                        {generating ? (
+                          <span className="flex items-center gap-2">
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            Generando malla...
+                          </span>
+                        ) : (
+                          "✓ Confirmar template y generar"
+                        )}
+                      </Button>
+                      <Button variant="outline" onClick={() => setSugerencia(null)} disabled={generating}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : (

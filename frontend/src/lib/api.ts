@@ -24,6 +24,9 @@ const API_URLS = {
   mis_solicitudes: `${API_BASE}/mis_solicitudes`,
   mi_empresa: `${API_BASE}/mi_empresa`,
   actualizar_empresa: `${API_BASE}/actualizar_empresa`,
+  listar_templates: `${API_BASE}/listar_templates`,
+  guardar_template: `${API_BASE}/guardar_template`,
+  sugerir_template: `${API_BASE}/sugerir_template`,
   // Mallas
   crear_malla: `https://crear-malla-${CLOUDRUN_SUFFIX}`,
   obtener_malla: `https://obtener-malla-${CLOUDRUN_SUFFIX}`,
@@ -407,6 +410,54 @@ export async function misSolicitudes(
   return res.json();
 }
 
+// ── Templates de malla (diseño instruccional) ────────────────────────────
+
+export interface MallaTemplate {
+  id: string;
+  nombre: string;
+  descripcion: string; // cuándo usarlo — la IA elige en base a esto
+  focus: string;
+  estructura: string[];
+  resource_mix: string;
+  gamification: string;
+  company_id: string | null; // null = global
+  activo?: boolean;
+}
+
+export interface TemplateSugerencia {
+  template_id: string;
+  nombre: string;
+  razon: string;
+  confianza: number;
+  alternativa_id: string | null;
+}
+
+export async function listarTemplates(): Promise<{ templates: MallaTemplate[] }> {
+  const res = await apiFetch(API_URLS.listar_templates);
+  if (!res.ok) throw new Error("Error listando templates");
+  return res.json();
+}
+
+export async function guardarTemplate(
+  data: Partial<MallaTemplate> & { scope?: "global" }
+): Promise<{ ok: boolean; id: string }> {
+  const res = await apiFetch(API_URLS.guardar_template, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Error guardando template: ${await res.text()}`);
+  return res.json();
+}
+
+export async function sugerirTemplate(curso: Curso): Promise<TemplateSugerencia> {
+  const res = await apiFetch(API_URLS.sugerir_template, {
+    method: "POST",
+    body: JSON.stringify({ curso }),
+  });
+  if (!res.ok) throw new Error(`Error sugiriendo template: ${await res.text()}`);
+  return res.json();
+}
+
 // Malla types
 export interface MallaItem {
   id: number;
@@ -435,9 +486,12 @@ export interface Malla {
 export async function crearMalla(data: {
   solicitud_id: string;
   curso: Curso;
+  // Template de diseño instruccional validado por el humano.
+  template_id?: string;
 }): Promise<{ id: string; malla: MallaItem[]; duracion_total: number }> {
   // The API expects flat structure, not nested curso
   const payload = {
+    template_id: data.template_id,
     nombre: data.curso.nombre,
     course_type: data.curso.course_type || "compliance",
     audiencia: data.curso.audiencia,
