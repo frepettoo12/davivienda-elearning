@@ -63,18 +63,20 @@ export function actingCompanyId(): string {
 }
 
 export async function authHeaders(): Promise<Record<string, string>> {
+  // Esperar a que Firebase Auth restaure la sesión (evita el race post-arranque
+  // donde currentUser todavía es null y el request saldría sin token).
+  await auth.authStateReady();
   const user = auth.currentUser;
   if (!user) return {};
-  try {
-    const token = await user.getIdToken();
-    const acting = actingCompanyId();
-    return {
-      Authorization: `Bearer ${token}`,
-      ...(acting ? { "X-Company-Id": acting } : {}),
-    };
-  } catch {
-    return {};
-  }
+  // Sin try/catch a propósito: si el refresh del token falla, es mejor que el
+  // request falle con un error real que mandarlo sin Authorization y recibir
+  // un 403 engañoso del backend (en modo suave, además, caería como Davivienda).
+  const token = await user.getIdToken();
+  const acting = actingCompanyId();
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(acting ? { "X-Company-Id": acting } : {}),
+  };
 }
 
 // ID token para URLs que no pueden mandar headers (iframes de preview del
