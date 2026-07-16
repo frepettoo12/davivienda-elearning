@@ -1,42 +1,137 @@
 "use client";
 
+/**
+ * Publicación en el LMS del cliente.
+ *
+ * El paquete SCORM 1.2 es el estándar que TODOS los LMS corporativos importan
+ * (Territorium, Moodle, Canvas, Blackboard, SuccessFactors, TalentLMS, …). El
+ * flujo: descargar el .zip (o copiar su link) → importarlo en el LMS siguiendo
+ * las instrucciones de la plataforma correspondiente → marcar el curso como
+ * publicado. No hay push automático: funciona con cualquier LMS sin credenciales.
+ */
+
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { listarSolicitudes, obtenerMalla, SolicitudListItem } from "@/lib/api";
+import {
+  actualizarSolicitud,
+  listarSolicitudes,
+  obtenerMalla,
+  Malla,
+  SolicitudListItem,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useCompany } from "@/contexts/CompanyContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
+// Instrucciones de importación SCORM por LMS. "match" liga el LMS configurado
+// por la empresa para mostrarlo primero.
+const LMS_GUIDES: Array<{ nombre: string; match?: RegExp; pasos: string[] }> = [
+  {
+    nombre: "Territorium",
+    match: /territorium/i,
+    pasos: [
+      "Entrá como administrador → Gestión de contenido → Cursos.",
+      "Crear curso → Importar contenido → SCORM.",
+      "Subí el archivo SCORM.zip descargado.",
+      "Asigná el curso a la audiencia (grupos/roles) y publicá.",
+      "El progreso y el puntaje de los quizzes se reportan solos (SCORM 1.2).",
+    ],
+  },
+  {
+    nombre: "Moodle",
+    match: /moodle/i,
+    pasos: [
+      "En el curso de destino: Activar edición → Añadir actividad o recurso → Paquete SCORM.",
+      "Arrastrá el SCORM.zip al campo de archivo.",
+      "En Calificación: método 'Calificación más alta' y nota máxima 100.",
+      "Guardá y mostrá — Moodle registra intentos, progreso y puntaje.",
+    ],
+  },
+  {
+    nombre: "Canvas",
+    match: /canvas/i,
+    pasos: [
+      "Habilitá la integración SCORM (Configuración → Navegación → SCORM).",
+      "Menú SCORM → Upload → elegí el SCORM.zip.",
+      "Importalo como 'Graded assignment' para que el puntaje llegue al gradebook.",
+    ],
+  },
+  {
+    nombre: "Blackboard",
+    match: /blackboard/i,
+    pasos: [
+      "En el curso: Contenido → Build Content → Content Package (SCORM).",
+      "Subí el SCORM.zip.",
+      "En opciones de calificación activá 'SCORM reporting' con nota sobre 100.",
+    ],
+  },
+  {
+    nombre: "SAP SuccessFactors",
+    match: /successfactors|sap/i,
+    pasos: [
+      "Learning Administration → Content → Import Content.",
+      "Elegí SCORM 1.2 y subí el zip.",
+      "Creá el Item de aprendizaje apuntando al contenido importado y asignalo.",
+    ],
+  },
+  {
+    nombre: "TalentLMS / LMS SaaS",
+    match: /talent/i,
+    pasos: [
+      "Agregar curso → Añadir contenido → SCORM | xAPI | cmi5.",
+      "Subí el SCORM.zip y guardá.",
+    ],
+  },
+  {
+    nombre: "Otro LMS (genérico)",
+    pasos: [
+      "Todo LMS corporativo tiene una opción 'Importar SCORM' o 'Content package' al crear un curso.",
+      "Elegí SCORM 1.2 si pide versión (es la más compatible).",
+      "Subí el SCORM.zip tal cual se descarga — no lo descomprimas.",
+      "El paquete reporta estado (completado/aprobado) y puntaje automáticamente.",
+    ],
+  },
+];
+
 export default function LmsPage() {
   const { company } = useCompany();
-  const lms = company.lmsNombre || "LMS";
+  const lms = company.lmsNombre || "tu LMS";
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
+  const solicitudId = searchParams.get("solicitud");
 
   const [loading, setLoading] = useState(true);
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploaded, setUploaded] = useState(false);
-  const [cursoNombre, setCursoNombre] = useState("");
+  const [malla, setMalla] = useState<Malla | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+  const [guiaAbierta, setGuiaAbierta] = useState<string | null>(null);
 
   useEffect(() => {
     if (mallaId) {
-      setLoading(false);
       obtenerMalla(mallaId)
-        .then((m) => { if (m.solicitud?.curso?.nombre) setCursoNombre(m.solicitud.curso.nombre); })
-        .catch(() => {});
+        .then(setMalla)
+        .catch(() => {})
+        .finally(() => setLoading(false));
     } else {
       loadEnProceso();
     }
   }, [mallaId]);
 
+  // La guía del LMS de la empresa arranca abierta.
+  useEffect(() => {
+    const propia = LMS_GUIDES.find((g) => g.match?.test(company.lmsNombre || ""));
+    setGuiaAbierta(propia?.nombre || "Otro LMS (genérico)");
+  }, [company.lmsNombre]);
+
   const loadEnProceso = async () => {
     setLoading(true);
     try {
       const result = await listarSolicitudes({ status: "en_proceso" });
-      setEnProcesoList(result.solicitudes.filter(s => s.malla_id));
+      setEnProcesoList(result.solicitudes.filter((s) => s.malla_id));
     } catch (err) {
       console.error(err);
     } finally {
@@ -44,62 +139,72 @@ export default function LmsPage() {
     }
   };
 
-  const handleUpload = async () => {
-    setUploading(true);
-    // Simular subida (TODO: implementar integración real con el LMS)
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setUploading(false);
-    setUploaded(true);
+  const copyLink = async () => {
+    if (!malla?.scorm_url) return;
+    await navigator.clipboard.writeText(malla.scorm_url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
+
+  const handlePublished = async () => {
+    if (!solicitudId) return;
+    setPublishing(true);
+    try {
+      await actualizarSolicitud(solicitudId, { status: "completado" });
+      setPublished(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const cursoNombre = malla?.solicitud?.curso?.nombre || "Curso";
+  const scormFecha = malla?.scorm_updated_at
+    ? new Date(malla.scorm_updated_at).toLocaleString("es", { dateStyle: "medium", timeStyle: "short" })
+    : null;
+  const scormMB = malla?.scorm_size ? (malla.scorm_size / 1024 / 1024).toFixed(1) : null;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-red-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
       </div>
     );
   }
 
+  // ── Listado de cursos en proceso ──
   if (!mallaId) {
     return (
       <div className="p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">LMS</h1>
-          <p className="text-gray-500">Sube el curso a {lms}</p>
+          <p className="text-gray-500">Publicá los cursos en {lms}</p>
         </div>
 
         {enProcesoList.length > 0 ? (
-          <div className="space-y-4">
-            <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-              <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-              Trabajos en Progreso
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {enProcesoList.map((sol) => (
-                <Card
-                  key={sol.id}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => router.push(`/dashboard/lms?malla=${sol.malla_id}`)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-semibold text-gray-900">{sol.curso_nombre}</h3>
-                      <Badge className="bg-yellow-100 text-yellow-700">Sin publicar</Badge>
-                    </div>
-                    <p className="text-sm text-gray-500 mb-3">{sol.area}</p>
-                    <Button size="sm" className="w-full">Subir a LMS</Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {enProcesoList.map((sol) => (
+              <Card
+                key={sol.id}
+                className="cursor-pointer transition-shadow hover:shadow-lg"
+                onClick={() => router.push(`/dashboard/lms?malla=${sol.malla_id}&solicitud=${sol.id}`)}
+              >
+                <CardContent className="p-4">
+                  <div className="mb-2 flex items-start justify-between">
+                    <h3 className="font-semibold text-gray-900">{sol.curso_nombre}</h3>
+                    <Badge className="bg-yellow-100 text-yellow-700">Sin publicar</Badge>
+                  </div>
+                  <p className="mb-3 text-sm text-gray-500">{sol.area}</p>
+                  <Button size="sm" className="w-full">Publicar en LMS</Button>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         ) : (
           <Card>
             <CardContent className="py-12 text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              <p className="text-gray-500 mb-4">Primero empaqueta el curso en formato SCORM</p>
+              <p className="mb-4 text-gray-500">No hay cursos en proceso con malla generada</p>
               <Button onClick={() => router.push("/dashboard/scorm")}>Ir a SCORM</Button>
             </CardContent>
           </Card>
@@ -108,127 +213,129 @@ export default function LmsPage() {
     );
   }
 
+  // ── Detalle: descargar paquete + instrucciones + marcar publicado ──
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/lms")}>
-            <svg className="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Cursos
-          </Button>
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900 truncate">{cursoNombre || "Subir a LMS"}</h1>
-        <p className="text-sm text-gray-500">Subir a LMS · {lms} - {company.nombre}</p>
+        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/lms")}>
+          ‹ Cursos
+        </Button>
+        <h1 className="mt-2 truncate text-2xl font-bold text-gray-900">{cursoNombre}</h1>
+        <p className="text-sm text-gray-500">Publicar en {lms} · {company.nombre}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Upload card */}
+        {/* Paso 1: el paquete */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              {lms}
-            </CardTitle>
+            <CardTitle>1 · Descargá el paquete SCORM</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
-                  {lms.charAt(0).toUpperCase()}
+            {malla?.scorm_url ? (
+              <>
+                <div className="rounded-lg bg-gray-50 p-4 text-sm">
+                  <p className="font-medium text-gray-900">SCORM.zip {scormMB ? `· ${scormMB} MB` : ""}</p>
+                  <p className="text-gray-500">Formato SCORM 1.2 — compatible con cualquier LMS corporativo</p>
+                  {scormFecha && <p className="mt-1 text-xs text-gray-400">Generado: {scormFecha}</p>}
                 </div>
-                <div>
-                  <p className="font-medium">{lms}</p>
-                  <p className="text-sm text-gray-500">LMS Corporativo {company.nombre}</p>
+                <div className="flex gap-2">
+                  <a
+                    href={malla.scorm_url}
+                    download
+                    className="inline-flex flex-1 items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90"
+                  >
+                    ⬇ Descargar SCORM.zip
+                  </a>
+                  <Button variant="outline" onClick={copyLink}>
+                    {copied ? "✓ Copiado" : "Copiar link"}
+                  </Button>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-gray-500">Formato</span>
-                  <p className="font-medium">SCORM 1.2</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">Categoría</span>
-                  <p className="font-medium">Capacitación</p>
-                </div>
-              </div>
-            </div>
-
-            {uploaded ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 p-4 bg-green-50 rounded-lg text-green-700">
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Curso subido exitosamente a {lms}
-                </div>
-                <Button variant="outline" className="w-full">
-                  <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Abrir en {lms}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-gray-500"
+                  onClick={() => router.push(`/dashboard/scorm?malla=${mallaId}`)}
+                >
+                  ↻ Regenerar el paquete (si cambiaste contenido)
+                </Button>
+              </>
+            ) : (
+              <div className="space-y-3 rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800">
+                <p>Este curso todavía no tiene un paquete SCORM generado.</p>
+                <Button onClick={() => router.push(`/dashboard/scorm?malla=${mallaId}`)} className="bg-brand hover:bg-brand/90">
+                  Ir a empaquetar en SCORM
                 </Button>
               </div>
-            ) : uploading ? (
-              <div className="flex items-center gap-2 p-4 bg-blue-50 rounded-lg text-blue-700">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-                Subiendo curso a {lms}...
-              </div>
-            ) : (
-              <Button onClick={handleUpload} className="w-full bg-red-600 hover:bg-red-700">
-                <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                Subir a {lms}
-              </Button>
             )}
           </CardContent>
         </Card>
 
-        {/* Status card */}
+        {/* Paso 3: confirmar */}
         <Card>
           <CardHeader>
-            <CardTitle>Estado del proceso</CardTitle>
+            <CardTitle>3 · Confirmá la publicación</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <StepStatus step="Solicitud" status="completed" />
-              <StepStatus step="Malla curricular" status="completed" />
-              <StepStatus step="Diseño de guiones" status="completed" />
-              <StepStatus step="Generación de contenido" status="completed" />
-              <StepStatus step="Empaquetado SCORM" status="completed" />
-              <StepStatus step="Subida a LMS" status={uploaded ? "completed" : uploading ? "current" : "pending"} />
-            </div>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Cuando el curso ya esté importado y visible en {lms}, marcalo como
+              publicado: la solicitud pasa a <b>Completado</b> y se le avisa por
+              email al solicitante.
+            </p>
+            {published ? (
+              <div className="rounded-lg bg-green-50 p-4 text-green-700">
+                ✓ Curso marcado como publicado
+              </div>
+            ) : (
+              <Button
+                onClick={handlePublished}
+                disabled={publishing || !solicitudId}
+                className="w-full bg-green-600 hover:bg-green-700"
+              >
+                {publishing ? "Guardando…" : "✓ Ya está publicado en el LMS"}
+              </Button>
+            )}
+            {!solicitudId && !published && (
+              <p className="text-xs text-gray-400">
+                (Entrá desde la lista de cursos para poder marcarlo)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Paso 2: instrucciones por LMS */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>2 · Importalo en tu LMS</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {LMS_GUIDES.map((g) => {
+              const esPropio = g.match?.test(company.lmsNombre || "");
+              const abierta = guiaAbierta === g.nombre;
+              return (
+                <div key={g.nombre} className="rounded-lg border">
+                  <button
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium"
+                    onClick={() => setGuiaAbierta(abierta ? null : g.nombre)}
+                  >
+                    <span>
+                      {g.nombre}
+                      {esPropio && <Badge className="ml-2 bg-brand/10 text-brand text-xs">tu LMS</Badge>}
+                    </span>
+                    <span className="text-gray-400">{abierta ? "−" : "+"}</span>
+                  </button>
+                  {abierta && (
+                    <ol className="space-y-1 border-t px-6 py-3 text-sm text-gray-600">
+                      {g.pasos.map((p, i) => (
+                        <li key={i} className="list-decimal">{p}</li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-function StepStatus({ step, status }: { step: string; status: "completed" | "current" | "pending" }) {
-  return (
-    <div className="flex items-center gap-3">
-      {status === "completed" ? (
-        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-          <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-      ) : status === "current" ? (
-        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-        </div>
-      ) : (
-        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-          <div className="w-3 h-3 rounded-full bg-gray-300" />
-        </div>
-      )}
-      <span className={status === "pending" ? "text-gray-400" : "text-gray-900"}>{step}</span>
     </div>
   );
 }

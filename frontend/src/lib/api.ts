@@ -480,6 +480,10 @@ export interface Malla {
   guiones?: Guion[];
   solicitud?: { curso?: { nombre?: string }; solicitante?: { nombre?: string; area?: string } };
   scorm_shell_html?: string;
+  // Último paquete SCORM generado (lo persiste empaquetar_scorm).
+  scorm_url?: string;
+  scorm_size?: number;
+  scorm_updated_at?: string;
 }
 
 // Malla functions

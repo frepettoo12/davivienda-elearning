@@ -1388,6 +1388,22 @@ def empaquetar_scorm_endpoint(req: https_fn.Request, ctx: RequestContext) -> htt
     blob.upload_from_string(zip_bytes, content_type="application/zip")
     blob.make_public()
 
+    # Persistir la URL del paquete en la malla: la página LMS la usa para
+    # ofrecer la descarga sin re-empaquetar. Best-effort.
+    if payload.get("malla_id"):
+        try:
+            ref = get_db().collection("mallas").document(payload["malla_id"])
+            snap = ref.get()
+            if snap.exists and not _tenant_mismatch(snap.to_dict(), ctx):
+                ref.update({
+                    "scorm_url": blob.public_url,
+                    "scorm_size": len(zip_bytes),
+                    "scorm_updated_at": SERVER_TIMESTAMP,
+                    "updated_at": SERVER_TIMESTAMP,
+                })
+        except Exception:
+            pass
+
     return _response({
         "ok": True,
         "download_url": blob.public_url,
