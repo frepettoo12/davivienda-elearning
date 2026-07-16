@@ -85,6 +85,13 @@ export interface MiEmpresa {
   descripcion_prompt?: string;
   email?: { from_name?: string };
   app_url?: string;
+  // Integración LMS (token enmascarado: solo se sabe si está configurado)
+  lms_integration?: {
+    tipo?: string;
+    base_url?: string;
+    categoria_id?: number;
+    token_configurado?: boolean;
+  } | null;
 }
 
 export function brandFromMiEmpresa(e: MiEmpresa): Brand {

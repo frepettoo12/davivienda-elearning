@@ -1600,6 +1600,13 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     payload["descripcion_prompt"] = c.get("descripcion_prompt")
     payload["email"] = c.get("email") or {}
     payload["app_url"] = c.get("app_url")
+    # Integración LMS con el token enmascarado (nunca sale del backend).
+    li = c.get("lms_integration") or None
+    payload["lms_integration"] = (
+        {"tipo": li.get("tipo"), "base_url": li.get("base_url"),
+         "categoria_id": li.get("categoria_id"), "token_configurado": bool(li.get("token"))}
+        if li else None
+    )
     if ctx.is_superadmin:
         from core.tenancy import list_companies
         payload["is_superadmin"] = True
@@ -1683,6 +1690,32 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
     if (data.get("email") or {}).get("from_name"):
         update["email"] = {"from_name": str(data["email"]["from_name"]).strip()}
 
+    # Integración LMS (push directo): tipo + URL + token de web services.
+    # El token nunca se devuelve en los GET (se enmascara en mi_empresa).
+    if "lms_integration" in data:
+        li = data.get("lms_integration") or {}
+        if not li:
+            update["lms_integration"] = None
+        else:
+            tipo = str(li.get("tipo") or "moodle").strip().lower()
+            base_url = str(li.get("base_url") or "").strip().rstrip("/")
+            if not base_url.startswith(("https://", "http://")):
+                return _error("base_url del LMS debe ser una URL http(s)")
+            integration = {"tipo": tipo, "base_url": base_url}
+            if li.get("token"):
+                integration["token"] = str(li["token"]).strip()
+            else:
+                # Sin token nuevo: conservar el guardado (permite editar solo la URL).
+                prev = ((ctx.company or {}).get("lms_integration") or {}).get("token")
+                if prev:
+                    integration["token"] = prev
+            if li.get("categoria_id") is not None:
+                try:
+                    integration["categoria_id"] = int(li["categoria_id"])
+                except (ValueError, TypeError):
+                    pass
+            update["lms_integration"] = integration
+
     if "app_url" in data:
         update["app_url"] = str(data.get("app_url") or "").strip() or None
 
@@ -1703,6 +1736,101 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
 
     get_db().collection("companies").document(ctx.company_id).set(update, merge=True)
     return _response({"ok": True, "company_id": ctx.company_id, "updated": [k for k in update if k != "updated_at"]})
+
+
+# ============== INTEGRACIÓN LMS (push directo) ==============
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def lms_probar(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /lms/probar - Prueba la conexión con el LMS. Usa las credenciales
+    del body (al configurar) o las guardadas de la empresa."""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+    except Exception:
+        data = {}
+
+    saved = (ctx.company or {}).get("lms_integration") or {}
+    base_url = str(data.get("base_url") or saved.get("base_url") or "").strip()
+    token = str(data.get("token") or saved.get("token") or "").strip()
+    if not base_url or not token:
+        return _error("Faltan base_url/token (configurá la integración primero)")
+
+    from core.lms import moodle
+    try:
+        return _response(moodle.probar_conexion(base_url, token))
+    except moodle.MoodleError as e:
+        return _error(str(e), 502)
+
+
+@https_fn.on_request(cors=cors_options, timeout_sec=300, memory=options.MemoryOption.GB_1)
+@require_auth(roles={"learning"})
+def lms_publicar(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /lms/publicar - Publica el SCORM de una malla directo en el LMS de
+    la empresa (v1: Moodle — crea el curso y sube el zip).
+    Body: { malla_id }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        malla_id = str(data.get("malla_id") or "").strip()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not malla_id:
+        return _error("Falta 'malla_id'")
+
+    li = (ctx.company or {}).get("lms_integration") or {}
+    if not li.get("base_url") or not li.get("token"):
+        return _error("La empresa no tiene integración LMS configurada", 400)
+    if (li.get("tipo") or "moodle") != "moodle":
+        return _error(f"Integración '{li.get('tipo')}' aún no soportada (v1: moodle)", 400)
+
+    snap = get_db().collection("mallas").document(malla_id).get()
+    if not snap.exists:
+        return _error("Malla not found", 404)
+    md = snap.to_dict() or {}
+    if _tenant_mismatch(md, ctx):
+        return _error("Malla not found", 404)
+    scorm_url = md.get("scorm_url")
+    if not scorm_url:
+        return _error("La malla no tiene paquete SCORM generado — empaquetá primero", 400)
+
+    import requests as _rq
+    try:
+        zresp = _rq.get(scorm_url, timeout=120)
+        zresp.raise_for_status()
+    except Exception as e:
+        return _error(f"No se pudo descargar el SCORM: {e}", 500)
+
+    curso_nombre = (md.get("solicitud") or {}).get("curso", {}).get("nombre") \
+        or (md.get("solicitud") or {}).get("nombre") or "Curso"
+
+    from core.lms import moodle
+    try:
+        result = moodle.publicar(
+            li["base_url"], li["token"], curso_nombre, malla_id,
+            zresp.content, categoria_id=int(li.get("categoria_id") or 1),
+        )
+    except moodle.MoodleError as e:
+        return _error(str(e), 502)
+
+    # Registrar la publicación en la malla (best-effort).
+    try:
+        get_db().collection("mallas").document(malla_id).update({
+            "lms_publicado": {
+                "tipo": "moodle",
+                "curso_id": result["curso_id"],
+                "curso_url": result["curso_url"],
+                "at": SERVER_TIMESTAMP,
+            },
+            "updated_at": SERVER_TIMESTAMP,
+        })
+    except Exception:
+        pass
+
+    return _response(result)
 
 
 # ============== LOGO DE EMPRESA ==============

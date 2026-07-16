@@ -342,6 +342,47 @@ export async function composeSlidesVideo(
   return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
 }
 
+// ── Integración LMS (push directo) ────────────────────────────────────────
+
+export interface LmsProbarResult {
+  ok: boolean;
+  sitio: string;
+  version: string;
+  usuario: string;
+  puede_crear_cursos: boolean;
+}
+
+export interface LmsPublicarResult {
+  ok: boolean;
+  curso_id: number;
+  curso_creado: boolean;
+  curso_url: string;
+  archivo_subido?: string;
+  paso_manual: string;
+}
+
+// Prueba la conexión. Con credenciales explícitas (al configurar) o las guardadas.
+export async function probarLms(creds?: {
+  base_url: string;
+  token: string;
+}): Promise<LmsProbarResult> {
+  const res = await apiFetch(`${API_BASE}/lms_probar`, {
+    method: "POST",
+    body: JSON.stringify(creds || {}),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function publicarLms(mallaId: string): Promise<LmsPublicarResult> {
+  const res = await apiFetch(`${API_BASE}/lms_publicar`, {
+    method: "POST",
+    body: JSON.stringify({ malla_id: mallaId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // Iteración de guión con IA (gpt-4o). Los callers manejan la respuesta según el
 // modo (analizar_intencion / iterar), por eso devuelve la Response cruda.
 export async function iterarGuionRequest(
@@ -484,6 +525,8 @@ export interface Malla {
   scorm_url?: string;
   scorm_size?: number;
   scorm_updated_at?: string;
+  // Última publicación directa en el LMS (lo persiste lms_publicar).
+  lms_publicado?: { tipo: string; curso_id: number; curso_url: string; at?: string };
 }
 
 // Malla functions

@@ -16,6 +16,8 @@ import {
   actualizarSolicitud,
   listarSolicitudes,
   obtenerMalla,
+  publicarLms,
+  LmsPublicarResult,
   Malla,
   SolicitudListItem,
 } from "@/lib/api";
@@ -95,8 +97,9 @@ const LMS_GUIDES: Array<{ nombre: string; match?: RegExp; pasos: string[] }> = [
 ];
 
 export default function LmsPage() {
-  const { company } = useCompany();
+  const { company, miEmpresa } = useCompany();
   const lms = company.lmsNombre || "tu LMS";
+  const integracionLista = Boolean(miEmpresa?.lms_integration?.token_configurado);
   const searchParams = useSearchParams();
   const router = useRouter();
   const mallaId = searchParams.get("malla");
@@ -109,6 +112,10 @@ export default function LmsPage() {
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState(false);
   const [guiaAbierta, setGuiaAbierta] = useState<string | null>(null);
+  // Publicación directa (integración LMS configurada en la empresa)
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<LmsPublicarResult | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   useEffect(() => {
     if (mallaId) {
@@ -144,6 +151,20 @@ export default function LmsPage() {
     await navigator.clipboard.writeText(malla.scorm_url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePush = async () => {
+    if (!mallaId) return;
+    setPushing(true);
+    setPushError(null);
+    try {
+      const r = await publicarLms(mallaId);
+      setPushResult(r);
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : "Error publicando");
+    } finally {
+      setPushing(false);
+    }
   };
 
   const handlePublished = async () => {
@@ -258,6 +279,47 @@ export default function LmsPage() {
                 >
                   ↻ Regenerar el paquete (si cambiaste contenido)
                 </Button>
+
+                {/* Publicación directa (si la empresa configuró su LMS) */}
+                {integracionLista && !pushResult && (
+                  <div className="rounded-lg border-2 border-brand/30 bg-brand/5 p-3">
+                    <p className="mb-2 text-sm font-medium text-gray-900">
+                      ⚡ Publicación directa en {lms}
+                    </p>
+                    <Button onClick={handlePush} disabled={pushing} className="w-full bg-brand hover:bg-brand/90">
+                      {pushing ? "Publicando (crea el curso y sube el paquete)…" : `Publicar directo en ${lms}`}
+                    </Button>
+                    {pushError && <p className="mt-2 text-sm text-red-600">{pushError}</p>}
+                  </div>
+                )}
+                {(pushResult || malla?.lms_publicado) && (
+                  <div className="space-y-2 rounded-lg bg-green-50 p-4 text-sm text-green-800">
+                    <p className="font-medium">
+                      ✓ {pushResult?.curso_creado === false ? "Curso actualizado" : "Curso creado"} en {lms}
+                      {pushResult?.archivo_subido ? ` · paquete "${pushResult.archivo_subido}" subido` : ""}
+                    </p>
+                    <a
+                      href={pushResult?.curso_url || malla?.lms_publicado?.curso_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block font-medium underline"
+                    >
+                      Abrir el curso en {lms} ↗
+                    </a>
+                    {pushResult?.paso_manual && (
+                      <p className="text-xs text-green-700">Último paso (1 min): {pushResult.paso_manual}</p>
+                    )}
+                  </div>
+                )}
+                {!integracionLista && (
+                  <p className="text-xs text-gray-400">
+                    💡 Configurá la integración con tu LMS en{" "}
+                    <button className="underline" onClick={() => router.push("/dashboard/configuracion")}>
+                      Configuración
+                    </button>{" "}
+                    para publicar con un click.
+                  </p>
+                )}
               </>
             ) : (
               <div className="space-y-3 rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800">

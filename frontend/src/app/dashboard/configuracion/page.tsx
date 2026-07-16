@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCompany } from "@/contexts/CompanyContext";
-import { actualizarEmpresa, subirLogo } from "@/lib/api";
+import { actualizarEmpresa, probarLms, subirLogo } from "@/lib/api";
 import { ALLOWED_FONTS } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,7 +55,13 @@ export default function ConfiguracionPage() {
     app_url: "",
     dominios: "",
     learning_domains: "",
+    lms_base_url: "",
+    lms_token: "",
+    lms_categoria: "",
   });
+  const [lmsTokenGuardado, setLmsTokenGuardado] = useState(false);
+  const [probandoLms, setProbandoLms] = useState(false);
+  const [lmsResultado, setLmsResultado] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -111,8 +117,33 @@ export default function ConfiguracionPage() {
       app_url: miEmpresa.app_url || "",
       dominios: (miEmpresa.dominios || []).join(", "),
       learning_domains: (miEmpresa.learning_domains || []).join(", "),
+      lms_base_url: miEmpresa.lms_integration?.base_url || "",
+      lms_token: "",
+      lms_categoria: miEmpresa.lms_integration?.categoria_id?.toString() || "",
     });
+    setLmsTokenGuardado(Boolean(miEmpresa.lms_integration?.token_configurado));
   }, [miEmpresa]);
+
+  const handleProbarLms = async () => {
+    setProbandoLms(true);
+    setLmsResultado(null);
+    try {
+      // Con token nuevo tipeado se prueba ese; si no, el guardado en el backend.
+      const r = await probarLms(
+        form.lms_token
+          ? { base_url: form.lms_base_url, token: form.lms_token }
+          : undefined
+      );
+      setLmsResultado(
+        `✓ Conectado a "${r.sitio}" (${r.version}) como ${r.usuario}. ` +
+        (r.puede_crear_cursos ? "El token puede crear cursos." : "⚠ El token NO puede crear cursos — revisá sus permisos.")
+      );
+    } catch (e) {
+      setLmsResultado(`✗ ${e instanceof Error ? e.message : "Error de conexión"}`);
+    } finally {
+      setProbandoLms(false);
+    }
+  };
 
   const set = (k: string, v: string | number) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -148,6 +179,16 @@ export default function ConfiguracionPage() {
         email: { from_name: form.email_from_name },
         app_url: form.app_url,
       };
+      // Integración LMS: solo se manda si hay URL; el token viaja solo si se
+      // tipeó uno nuevo (vacío = conservar el guardado).
+      if (form.lms_base_url.trim()) {
+        payload.lms_integration = {
+          tipo: "moodle",
+          base_url: form.lms_base_url.trim(),
+          ...(form.lms_token ? { token: form.lms_token } : {}),
+          ...(form.lms_categoria ? { categoria_id: parseInt(form.lms_categoria) } : {}),
+        };
+      }
       if (isSuperadmin) {
         payload.dominios = splitList(form.dominios);
         payload.learning_domains = splitList(form.learning_domains);
@@ -335,6 +376,55 @@ export default function ConfiguracionPage() {
           <div>
             <label className={labelCls}>Nombre del remitente</label>
             <input className={inputCls} value={form.email_from_name} placeholder={`${form.nombre} E-Learning`} onChange={(e) => set("email_from_name", e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Integración LMS (push directo) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>🔗 Integración LMS — publicación directa</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div>
+            <label className={labelCls}>Tipo</label>
+            <select className={inputCls} value="moodle" disabled>
+              <option value="moodle">Moodle (web services)</option>
+            </select>
+            <p className={hintCls}>Otros LMS: próximamente</p>
+          </div>
+          <div>
+            <label className={labelCls}>URL de tu Moodle</label>
+            <input className={inputCls} value={form.lms_base_url} placeholder="https://moodle.tuempresa.com" onChange={(e) => set("lms_base_url", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Token de web services</label>
+            <input
+              type="password"
+              className={inputCls}
+              value={form.lms_token}
+              placeholder={lmsTokenGuardado ? "•••••• (guardado — tipeá para reemplazar)" : "token del servicio REST"}
+              onChange={(e) => set("lms_token", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Categoría de cursos (ID)</label>
+            <input className={inputCls} value={form.lms_categoria} placeholder="1 (Miscellaneous)" onChange={(e) => set("lms_categoria", e.target.value)} />
+            <p className={hintCls}>En qué categoría de Moodle se crean los cursos</p>
+          </div>
+          <div className="flex items-end gap-2 md:col-span-2">
+            <Button variant="outline" onClick={handleProbarLms} disabled={probandoLms || (!form.lms_base_url.trim())}>
+              {probandoLms ? "Probando…" : "⚡ Probar conexión"}
+            </Button>
+            {lmsResultado && (
+              <p className={`text-sm ${lmsResultado.startsWith("✓") ? "text-green-600" : "text-red-600"}`}>{lmsResultado}</p>
+            )}
+          </div>
+          <div className="md:col-span-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+            Requisitos en tu Moodle (una vez, como admin): habilitar <b>servicios web</b> y el
+            protocolo <b>REST</b> (Administración del sitio → Funciones avanzadas / Plugins →
+            Servicios web), y crear un <b>token</b> para un usuario con permiso de crear cursos.
+            El token se guarda en el backend y nunca vuelve al navegador.
           </div>
         </CardContent>
       </Card>
