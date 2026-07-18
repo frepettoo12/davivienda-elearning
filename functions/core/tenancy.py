@@ -65,8 +65,14 @@ class RequestContext:
 
 
 def _db():
+    # Thread-safe: con concurrencia 80 en gen2, dos requests fríos pueden entrar
+    # acá a la vez; el segundo initialize_app() tira ValueError ("already exists")
+    # y eso degradaba silenciosamente el chequeo de superadmin/tenant.
     if not firebase_admin._apps:
-        firebase_admin.initialize_app()
+        try:
+            firebase_admin.initialize_app()
+        except ValueError:
+            pass  # otra thread ganó la carrera
     return firestore.client()
 
 

@@ -61,21 +61,29 @@ _db = None
 _bucket = None
 
 
-def get_db():
-    global _app, _db
+def _ensure_app():
+    """Inicialización thread-safe de la app default (concurrencia 80 en gen2:
+    dos requests fríos simultáneos → el 2º initialize_app() tira ValueError)."""
+    global _app
     if _app is None:
-        # core.tenancy puede haber inicializado la app default antes (decorador
-        # de auth corre primero) — reutilizarla en vez de re-inicializar.
-        _app = firebase_admin.get_app() if firebase_admin._apps else firebase_admin.initialize_app()
+        try:
+            _app = firebase_admin.get_app() if firebase_admin._apps else firebase_admin.initialize_app()
+        except ValueError:
+            _app = firebase_admin.get_app()
+    return _app
+
+
+def get_db():
+    global _db
+    _ensure_app()
     if _db is None:
         _db = firestore.client()
     return _db
 
 
 def get_bucket():
-    global _app, _bucket
-    if _app is None:
-        _app = firebase_admin.get_app() if firebase_admin._apps else firebase_admin.initialize_app()
+    global _bucket
+    _ensure_app()
     if _bucket is None:
         _bucket = storage.bucket("davivienda-elearning-assets")
     return _bucket
