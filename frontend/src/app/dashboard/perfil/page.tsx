@@ -202,10 +202,22 @@ export default function PerfilPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="rounded-lg bg-gray-50 p-4">
+            <div className="space-y-1.5 rounded-lg bg-gray-50 p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                La IA considera toda esta información:
+              </p>
+              <p><span className="text-gray-500">Audiencia:</span> {solicitud?.curso?.audiencia || "—"} · <span className="text-gray-500">Nivel:</span> {solicitud?.curso?.nivel || "—"}</p>
               <p><span className="text-gray-500">Objetivo:</span> {solicitud?.curso?.objetivo}</p>
-              <p className="mt-1"><span className="text-gray-500">Temas pedidos:</span> {solicitud?.curso?.temas}</p>
-              <p className="mt-1"><span className="text-gray-500">Duración:</span> {solicitud?.curso?.duracion_min} min</p>
+              <p><span className="text-gray-500">Temas pedidos:</span> {solicitud?.curso?.temas}</p>
+              <p><span className="text-gray-500">Duración:</span> {solicitud?.curso?.duracion_min} min · <span className="text-gray-500">Evaluación:</span> {solicitud?.curso?.requiere_eval ? "Sí" : "No"}</p>
+              {(solicitud?.intake?.clarificaciones?.length || 0) > 0 && (
+                <p className="text-green-700">✓ {solicitud!.intake!.clarificaciones.length} respuestas de clarificación del solicitante</p>
+              )}
+              {(solicitud?.intake?.documentos?.length || 0) > 0 && (
+                <p className="text-green-700">
+                  ✓ {solicitud!.intake!.documentos.length} documentos de referencia: {solicitud!.intake!.documentos.map((d) => d.titulo).join(", ")}
+                </p>
+              )}
             </div>
             <Button onClick={handleGenerar} disabled={working !== null} className="w-full bg-brand hover:bg-brand/90">
               {working === "generar" ? "Generando…" : "⚡ Generar perfil con IA"}

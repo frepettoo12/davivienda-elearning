@@ -138,7 +138,8 @@ export default function SolicitudDetailPage() {
     setSubmitting(true);
     try {
       await actualizarSolicitud(solicitud.id, { status: "en_proceso" });
-      router.push(`/dashboard/malla?solicitud=${solicitud.id}`);
+      // El proceso arranca por el Perfil de Salida (primer paso), no por la Malla.
+      router.push(`/dashboard/perfil?solicitud=${solicitud.id}`);
     } catch (err) {
       console.error(err);
       setSubmitting(false);
@@ -445,21 +446,21 @@ export default function SolicitudDetailPage() {
 
               {solicitud.status === "aprobado" && (
                 <Button
-                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                  className="w-full bg-brand hover:bg-brand/90"
                   onClick={handleIniciarProduccion}
                   disabled={submitting}
                 >
-                  Iniciar Producción
+                  Iniciar diseño (Perfil de Salida) →
                 </Button>
               )}
 
               {solicitud.status === "en_proceso" && (
                 <>
                   <Button
-                    className="w-full"
-                    onClick={() => router.push(`/dashboard/malla?solicitud=${solicitud.id}`)}
+                    className="w-full bg-brand hover:bg-brand/90"
+                    onClick={() => router.push(`/dashboard/perfil?solicitud=${solicitud.id}`)}
                   >
-                    Ir a Malla
+                    Ir al proceso →
                   </Button>
                   <Button
                     className="w-full bg-green-600 hover:bg-green-700"
@@ -478,10 +479,6 @@ export default function SolicitudDetailPage() {
               <CardTitle>Información</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">ID</span>
-                <span className="font-mono text-gray-900">{solicitud.id.slice(0, 8)}...</span>
-              </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Creado</span>
                 <span className="text-gray-900">{formatDate(solicitud.created_at)}</span>
