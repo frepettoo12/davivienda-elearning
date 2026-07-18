@@ -1006,7 +1006,7 @@ def listar_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
 
 
 @https_fn.on_request(cors=cors_options)
-@require_auth()
+@require_auth(allow_unassigned=True)
 def obtener_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """GET /solicitudes/{id} - Obtener una solicitud con sus comentarios."""
     if req.method != "GET":
@@ -1028,12 +1028,13 @@ def obtener_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Re
         return _error("Solicitud not found", 404)
 
     data = doc.to_dict()
-    if _tenant_mismatch(data, ctx):
+    # Ownership primero: el dueño (email del solicitante) siempre puede ver la
+    # suya, aunque no tenga empresa mapeada (gmail). Learning ve las de su tenant.
+    es_dueno = bool(ctx.email) and (data.get("solicitante", {}).get("email") or "").lower() == ctx.email
+    if not es_dueno and _tenant_mismatch(data, ctx):
         return _error("Solicitud not found", 404)
-    # Un solicitante solo puede ver sus propias solicitudes.
-    if ctx.rol == "solicitante" and ctx.email:
-        if (data.get("solicitante", {}).get("email") or "").lower() != ctx.email:
-            return _error("Solicitud not found", 404)
+    if ctx.rol == "solicitante" and not es_dueno:
+        return _error("Solicitud not found", 404)
     data["id"] = doc.id
 
     # Obtener comentarios
@@ -1115,7 +1116,7 @@ def actualizar_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn
 
 
 @https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
-@require_auth()
+@require_auth(allow_unassigned=True)
 def agregar_comentario(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     """POST /solicitudes/{id}/comentarios - Agregar un comentario a una solicitud."""
     if req.method != "POST":
@@ -1148,11 +1149,11 @@ def agregar_comentario(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
     if not doc.exists:
         return _error("Solicitud not found", 404)
     _sol_data = doc.to_dict() or {}
-    if _tenant_mismatch(_sol_data, ctx):
+    _es_dueno = bool(ctx.email) and (_sol_data.get("solicitante", {}).get("email") or "").lower() == ctx.email
+    if not _es_dueno and _tenant_mismatch(_sol_data, ctx):
         return _error("Solicitud not found", 404)
-    if ctx.rol == "solicitante" and ctx.email:
-        if (_sol_data.get("solicitante", {}).get("email") or "").lower() != ctx.email:
-            return _error("Solicitud not found", 404)
+    if ctx.rol == "solicitante" and not _es_dueno:
+        return _error("Solicitud not found", 404)
 
     # Crear comentario en subcolección
     comentario_ref = get_db().collection("solicitudes").document(solicitud_id).collection("comentarios").document()
@@ -1535,13 +1536,13 @@ def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respo
     if not snap.exists:
         return _error("Solicitud not found", 404)
     sol = snap.to_dict() or {}
-    if _tenant_mismatch(sol, ctx):
+    # Ownership primero (mismo criterio que obtener_solicitud): el dueño valida
+    # aunque no tenga empresa mapeada; Learning valida las de su tenant.
+    es_dueno = bool(ctx.email) and (sol.get("solicitante", {}).get("email") or "").lower() == ctx.email
+    if not es_dueno and _tenant_mismatch(sol, ctx):
         return _error("Solicitud not found", 404)
-    # El solicitante solo valida SUS solicitudes; Learning también puede validar
-    # (ej. lo acordaron por otro canal).
-    if ctx.rol == "solicitante" and ctx.email:
-        if (sol.get("solicitante", {}).get("email") or "").lower() != ctx.email:
-            return _error("Solicitud not found", 404)
+    if ctx.rol == "solicitante" and not es_dueno:
+        return _error("Solicitud not found", 404)
 
     perfil = sol.get("perfil_salida") or {}
     if not perfil.get("contenido"):
@@ -1554,9 +1555,12 @@ def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respo
     ref.update({"perfil_salida": perfil, "updated_at": SERVER_TIMESTAMP})
 
     curso = (sol.get("curso") or {}).get("nombre", "el curso")
+    # Notificar al equipo de la empresa DUEÑA de la solicitud (el validador
+    # gmail puede no tener empresa mapeada).
+    empresa_solicitud = get_company(owner_company_id(sol))
     notifications.notify_perfil_resultado(
         solicitud_id, curso, decision == "aprobar", feedback,
-        asignado=sol.get("asignado_a"), company=ctx.company,
+        asignado=sol.get("asignado_a"), company=empresa_solicitud,
     )
     return _response({"ok": True, "status": perfil["status"]})
 
