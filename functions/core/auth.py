@@ -65,10 +65,17 @@ def get_request_context(req: https_fn.Request, allow_unassigned: bool = False) -
     if not header.startswith("Bearer "):
         raise AuthError("Missing Authorization header", 401)
 
+    # Asegurar que la app default esté inicializada ANTES de verify_id_token:
+    # en instancias frías, verify es la primera llamada a firebase_admin y sin
+    # app tira ValueError (que se veía como "token inválido" → 401 espurio).
+    import core.tenancy as _tenancy
+    _tenancy._db()
+
     from firebase_admin import auth as fb_auth
     try:
         decoded = fb_auth.verify_id_token(header.removeprefix("Bearer ").strip())
-    except Exception:
+    except Exception as e:
+        logger.warning("verify_id_token falló: %s", e)
         raise AuthError("Invalid or expired token", 401)
 
     email = (decoded.get("email") or "").lower()
