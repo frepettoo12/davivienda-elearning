@@ -194,6 +194,27 @@ def list_companies() -> list[dict]:
     return sorted(out, key=lambda c: c["nombre"].lower())
 
 
+def resolve_invitation(email: str) -> tuple[str | None, dict | None]:
+    """Alta de solicitante por email desde el dashboard (colección `invitaciones`).
+    Autoritativa y revocable: si el equipo Learning borra la invitación, el
+    usuario pierde el acceso en el próximo request."""
+    if not email:
+        return None, None
+    try:
+        snap = _db().collection("invitaciones").document(email.lower()).get()
+    except Exception:
+        return None, None
+    if not snap.exists:
+        return None, None
+    d = snap.to_dict() or {}
+    if not d.get("activo", True):
+        return None, None
+    cid = d.get("company_id")
+    if not cid:
+        return None, None
+    return cid, get_company(cid)
+
+
 def resolve_user_company(uid: str) -> tuple[str | None, dict | None]:
     """Mapeo explícito users/{uid}.company_id (solicitantes de dominios no registrados)."""
     try:

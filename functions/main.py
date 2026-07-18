@@ -1308,6 +1308,115 @@ def listar_usuarios(req: https_fn.Request, ctx: RequestContext) -> https_fn.Resp
     return _response({"usuarios": usuarios, "total": len(usuarios)})
 
 
+# ============== SOLICITANTES (alta por el equipo Learning) ==============
+
+_EMAIL_RE = None
+
+
+def _valid_email(e: str) -> bool:
+    global _EMAIL_RE
+    if _EMAIL_RE is None:
+        import re as _re
+        _EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    return bool(_EMAIL_RE.match(e or ""))
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def listar_solicitantes(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """GET /solicitantes - Solicitantes dados de alta (invitados) por la empresa."""
+    if req.method != "GET":
+        return _error("Method not allowed", 405)
+    items = []
+    try:
+        for snap in get_db().collection("invitaciones").where("company_id", "==", ctx.company_id).stream():
+            d = snap.to_dict() or {}
+            items.append({
+                "email": snap.id,
+                "nombre": d.get("nombre") or snap.id.split("@")[0],
+                "activo": d.get("activo", True),
+                "invitado_por": d.get("invitado_por"),
+                "created_at": d.get("created_at"),
+            })
+    except Exception as e:
+        return _error(f"Error listando solicitantes: {e}", 500)
+    items.sort(key=lambda x: (x.get("nombre") or "").lower())
+    return _response({"solicitantes": items, "total": len(items)})
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def invitar_solicitante(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /solicitantes - Da de alta un solicitante por email.
+    Body: { email, nombre? }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        email = str(data.get("email") or "").strip().lower()
+        nombre = str(data.get("nombre") or "").strip()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not _valid_email(email):
+        return _error("Email inválido")
+
+    # Si el dominio ya pertenece a una empresa, esa persona ya es miembro por
+    # dominio (no hace falta invitarla, o pertenece a OTRA empresa).
+    from core.tenancy import resolve_company_by_domain
+    dom_cid, _ = resolve_company_by_domain(email.split("@")[-1])
+    if dom_cid and dom_cid != ctx.company_id:
+        return _error(f"Ese dominio pertenece a la empresa '{dom_cid}' — no se puede invitar acá", 409)
+    if dom_cid == ctx.company_id:
+        return _error("Ese email ya pertenece a tu empresa por su dominio (no hace falta invitarlo)", 409)
+
+    # ¿Ya invitado en OTRA empresa?
+    ref = get_db().collection("invitaciones").document(email)
+    existing = ref.get()
+    if existing.exists and (existing.to_dict() or {}).get("company_id") != ctx.company_id:
+        return _error("Ese email ya fue dado de alta en otra empresa", 409)
+
+    ref.set({
+        "company_id": ctx.company_id,
+        "nombre": nombre or None,
+        "rol": "solicitante",
+        "activo": True,
+        "invitado_por": ctx.email or None,
+        "created_at": SERVER_TIMESTAMP,
+        "updated_at": SERVER_TIMESTAMP,
+    }, merge=True)
+    return _response({"ok": True, "email": email}, 201)
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(roles={"learning"})
+def eliminar_solicitante(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /solicitantes/eliminar - Da de baja un solicitante (revoca acceso).
+    Body: { email }"""
+    if req.method not in ["POST", "DELETE"]:
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        email = str(data.get("email") or "").strip().lower()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not email:
+        return _error("Falta 'email'")
+
+    ref = get_db().collection("invitaciones").document(email)
+    snap = ref.get()
+    if not snap.exists or (snap.to_dict() or {}).get("company_id") != ctx.company_id:
+        return _error("Solicitante no encontrado", 404)
+    ref.delete()
+    # Limpiar el mapeo persistido users/{uid} para revocar acceso ya activo.
+    try:
+        for u in get_db().collection("users").where("email", "==", email).stream():
+            if (u.to_dict() or {}).get("company_id") == ctx.company_id:
+                u.reference.delete()
+    except Exception:
+        pass
+    return _response({"ok": True, "email": email})
+
+
 # ============== SCORM SHELL (plantilla del paquete) ==============
 
 @https_fn.on_request(cors=cors_options)

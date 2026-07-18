@@ -29,6 +29,7 @@ from core.tenancy import (
     get_company,
     get_superadmin_emails,
     resolve_company_by_domain,
+    resolve_invitation,
     resolve_user_company,
 )
 
@@ -86,7 +87,10 @@ def get_request_context(req: https_fn.Request, allow_unassigned: bool = False) -
 
     company_id, company = resolve_company_by_domain(domain)
     if not company_id:
-        # Dominio no registrado: mapeo explícito persistido (users/{uid}).
+        # Alta de solicitante por email desde el dashboard (autoritativa, revocable).
+        company_id, company = resolve_invitation(email)
+    if not company_id:
+        # Mapeo legacy persistido (users/{uid}, del auto-registro al crear solicitud).
         company_id, company = resolve_user_company(uid)
 
     # Superadmin (config/platform.superadmin_emails): acceso cross-tenant.

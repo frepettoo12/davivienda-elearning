@@ -37,6 +37,7 @@ const navSections: Array<{ label: string | null; items: Array<{ href: string; la
   {
     label: "Gestión",
     items: [
+      { href: "/dashboard/usuarios", label: "Solicitantes", icon: "users" },
       { href: "/dashboard/templates", label: "Templates", icon: "layers" },
       { href: "/dashboard/configuracion", label: "Configuración", icon: "gear" },
       { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
@@ -61,6 +62,11 @@ const icons: Record<string, React.ReactNode> = {
       <circle cx="12" cy="12" r="9" strokeWidth={2} />
       <circle cx="12" cy="12" r="5" strokeWidth={2} />
       <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  users: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-3.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-4.5" />
     </svg>
   ),
   inbox: (

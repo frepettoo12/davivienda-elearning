@@ -27,6 +27,9 @@ const API_URLS = {
   listar_templates: `${API_BASE}/listar_templates`,
   guardar_template: `${API_BASE}/guardar_template`,
   sugerir_template: `${API_BASE}/sugerir_template`,
+  listar_solicitantes: `${API_BASE}/listar_solicitantes`,
+  invitar_solicitante: `${API_BASE}/invitar_solicitante`,
+  eliminar_solicitante: `${API_BASE}/eliminar_solicitante`,
   // Mallas
   crear_malla: `https://crear-malla-${CLOUDRUN_SUFFIX}`,
   obtener_malla: `https://obtener-malla-${CLOUDRUN_SUFFIX}`,
@@ -517,6 +520,39 @@ export async function actualizarEmpresa(
   if (!res.ok) {
     throw new Error(await errorDe(res, 'Error guardando configuración'));
   }
+  return res.json();
+}
+
+// ── Solicitantes dados de alta por el equipo Learning ────────────────────
+export interface SolicitanteInvitado {
+  email: string;
+  nombre: string;
+  activo: boolean;
+  invitado_por?: string;
+  created_at?: string;
+}
+
+export async function listarSolicitantes(): Promise<{ solicitantes: SolicitanteInvitado[] }> {
+  const res = await apiFetch(API_URLS.listar_solicitantes);
+  if (!res.ok) throw new Error(await errorDe(res, "Error listando solicitantes"));
+  return res.json();
+}
+
+export async function invitarSolicitante(email: string, nombre?: string): Promise<{ ok: boolean; email: string }> {
+  const res = await apiFetch(API_URLS.invitar_solicitante, {
+    method: "POST",
+    body: JSON.stringify({ email, nombre }),
+  });
+  if (!res.ok) throw new Error(await errorDe(res, "Error dando de alta al solicitante"));
+  return res.json();
+}
+
+export async function eliminarSolicitante(email: string): Promise<{ ok: boolean }> {
+  const res = await apiFetch(API_URLS.eliminar_solicitante, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(await errorDe(res, "Error dando de baja"));
   return res.json();
 }
 
