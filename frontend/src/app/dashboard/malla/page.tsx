@@ -653,21 +653,7 @@ export default function MallaPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Progress indicator */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Progreso</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <StepIndicator step={1} label="Malla" done={mallaItems.length > 0} current={mallaItems.length === 0} />
-                <StepIndicator step={2} label="Diseño" done={false} current={mallaItems.length > 0} />
-                <StepIndicator step={3} label="Contenido" done={false} current={false} />
-                <StepIndicator step={4} label="SCORM" done={false} current={false} />
-              </div>
-            </CardContent>
-          </Card>
-
+          {/* El progreso vive en el ProcessStepper de arriba */}
           {solicitud && (
             <Card>
               <CardHeader>
@@ -743,19 +729,3 @@ export default function MallaPage() {
   );
 }
 
-function StepIndicator({ step, label, done, current }: { step: number; label: string; done: boolean; current: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-        done ? 'bg-green-100 text-green-700' :
-        current ? 'bg-red-100 text-red-700 ring-2 ring-red-500' :
-        'bg-gray-100 text-gray-400'
-      }`}>
-        {done ? '✓' : step}
-      </div>
-      <span className={`text-sm ${current ? 'font-medium text-gray-900' : 'text-gray-500'}`}>
-        {label}
-      </span>
-    </div>
-  );
-}
