@@ -172,6 +172,7 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
         documentacion=solicitud.documentacion or "",
         empresa=ctx.company,
         template=templates_svc.template_for_prompt(template_doc) if template_doc else None,
+        perfil=data.get("perfil_salida") if isinstance(data.get("perfil_salida"), dict) else None,
     )
 
     if error:
@@ -1410,6 +1411,154 @@ def empaquetar_scorm_endpoint(req: https_fn.Request, ctx: RequestContext) -> htt
         "size": len(zip_bytes),
         "recursos": len(payload.get("recursos", [])),
     })
+
+
+# ============== PERFIL DE SALIDA (paso previo a la malla) ==============
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+@require_auth(roles={"learning"})
+def generar_perfil_endpoint(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /perfil/generar - Genera (o itera con feedback) el perfil de salida
+    de una solicitud. Body: { solicitud_id, feedback? }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        solicitud_id = str(data.get("solicitud_id") or "").strip()
+        feedback = str(data.get("feedback") or "").strip() or None
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not solicitud_id:
+        return _error("Falta 'solicitud_id'")
+
+    ref = get_db().collection("solicitudes").document(solicitud_id)
+    snap = ref.get()
+    if not snap.exists:
+        return _error("Solicitud not found", 404)
+    sol = snap.to_dict() or {}
+    if _tenant_mismatch(sol, ctx):
+        return _error("Solicitud not found", 404)
+
+    from core.services.perfil_service import generar_perfil
+    actual = (sol.get("perfil_salida") or {}).get("contenido") if feedback else None
+    perfil, error = generar_perfil(
+        sol.get("curso") or {}, empresa=ctx.company,
+        perfil_actual=actual, feedback=feedback,
+    )
+    if error:
+        return _error(f"Error generando perfil: {error}", 500)
+
+    prev = sol.get("perfil_salida") or {}
+    perfil_doc = {
+        "contenido": perfil,
+        "status": "borrador",
+        "version": int(prev.get("version") or 0) + 1,
+        "validacion_feedback": prev.get("validacion_feedback"),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    ref.update({"perfil_salida": perfil_doc, "updated_at": SERVER_TIMESTAMP})
+    return _response({"solicitud_id": solicitud_id, "perfil_salida": perfil_doc})
+
+
+@https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
+@require_auth(roles={"learning"})
+def guardar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """PUT /perfil - Guarda ediciones manuales del perfil y/o lo envía a
+    validación del área. Body: { solicitud_id, contenido?, accion?: "enviar_validacion" }"""
+    if req.method not in ["PUT", "POST"]:
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        solicitud_id = str(data.get("solicitud_id") or "").strip()
+        contenido = data.get("contenido")
+        accion = str(data.get("accion") or "").strip()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not solicitud_id:
+        return _error("Falta 'solicitud_id'")
+
+    ref = get_db().collection("solicitudes").document(solicitud_id)
+    snap = ref.get()
+    if not snap.exists:
+        return _error("Solicitud not found", 404)
+    sol = snap.to_dict() or {}
+    if _tenant_mismatch(sol, ctx):
+        return _error("Solicitud not found", 404)
+
+    perfil = sol.get("perfil_salida") or {}
+    if contenido is not None:
+        if not isinstance(contenido, dict) or not contenido.get("temario"):
+            return _error("'contenido' inválido (falta temario)")
+        perfil["contenido"] = contenido
+    if not perfil.get("contenido"):
+        return _error("La solicitud no tiene perfil generado", 400)
+
+    if accion == "enviar_validacion":
+        perfil["status"] = "en_validacion"
+        perfil["enviado_at"] = datetime.utcnow().isoformat()
+    elif "status" not in perfil:
+        perfil["status"] = "borrador"
+    perfil["updated_at"] = datetime.utcnow().isoformat()
+
+    ref.update({"perfil_salida": perfil, "updated_at": SERVER_TIMESTAMP})
+
+    if accion == "enviar_validacion":
+        email = (sol.get("solicitante") or {}).get("email")
+        curso = (sol.get("curso") or {}).get("nombre", "tu curso")
+        if email:
+            notifications.notify_perfil_en_validacion(email, solicitud_id, curso, company=ctx.company)
+
+    return _response({"ok": True, "perfil_salida": perfil})
+
+
+@https_fn.on_request(cors=cors_options, secrets=[SENDGRID_API_KEY])
+@require_auth(allow_unassigned=True)
+def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /perfil/validar - El área solicitante aprueba o pide cambios.
+    Body: { solicitud_id, decision: "aprobar"|"cambios", feedback? }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        solicitud_id = str(data.get("solicitud_id") or "").strip()
+        decision = str(data.get("decision") or "").strip().lower()
+        feedback = str(data.get("feedback") or "").strip() or None
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not solicitud_id or decision not in ("aprobar", "cambios"):
+        return _error("Faltan 'solicitud_id' / 'decision' (aprobar|cambios)")
+    if decision == "cambios" and not feedback:
+        return _error("Contanos qué cambios necesita el perfil (feedback)")
+
+    ref = get_db().collection("solicitudes").document(solicitud_id)
+    snap = ref.get()
+    if not snap.exists:
+        return _error("Solicitud not found", 404)
+    sol = snap.to_dict() or {}
+    if _tenant_mismatch(sol, ctx):
+        return _error("Solicitud not found", 404)
+    # El solicitante solo valida SUS solicitudes; Learning también puede validar
+    # (ej. lo acordaron por otro canal).
+    if ctx.rol == "solicitante" and ctx.email:
+        if (sol.get("solicitante", {}).get("email") or "").lower() != ctx.email:
+            return _error("Solicitud not found", 404)
+
+    perfil = sol.get("perfil_salida") or {}
+    if not perfil.get("contenido"):
+        return _error("La solicitud no tiene perfil para validar", 400)
+
+    perfil["status"] = "aprobado" if decision == "aprobar" else "con_cambios"
+    perfil["validacion_feedback"] = feedback
+    perfil["validado_por"] = ctx.email or None
+    perfil["validado_at"] = datetime.utcnow().isoformat()
+    ref.update({"perfil_salida": perfil, "updated_at": SERVER_TIMESTAMP})
+
+    curso = (sol.get("curso") or {}).get("nombre", "el curso")
+    notifications.notify_perfil_resultado(
+        solicitud_id, curso, decision == "aprobar", feedback,
+        asignado=sol.get("asignado_a"), company=ctx.company,
+    )
+    return _response({"ok": True, "status": perfil["status"]})
 
 
 # ============== TEMPLATES DE MALLA ==============

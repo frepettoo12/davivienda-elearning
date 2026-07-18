@@ -6,10 +6,13 @@ import {
   obtenerSolicitud,
   agregarComentario,
   listarUsuarios,
+  validarPerfil,
   Solicitud,
+  PerfilSalida,
   STATUS_CONFIG,
   PRIORIDAD_CONFIG,
   COURSE_TYPE_CONFIG,
+  PERFIL_STATUS_CONFIG,
   type Usuario,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -196,6 +199,15 @@ export default function SolicitudDetailPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Perfil de salida: el área lo valida acá */}
+          {solicitud.perfil_salida?.contenido && solicitud.perfil_salida.status !== "borrador" && (
+            <PerfilValidacion
+              solicitudId={solicitud.id}
+              perfil={solicitud.perfil_salida}
+              onValidated={loadSolicitud}
+            />
+          )}
+
           {/* Course details */}
           <Card>
             <CardHeader>
@@ -384,5 +396,135 @@ export default function SolicitudDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Validación del Perfil de Salida por el área solicitante: es el "contrato"
+// del curso (qué va a aprender la gente + temario). Aprobar habilita el diseño.
+function PerfilValidacion({ solicitudId, perfil, onValidated }: {
+  solicitudId: string;
+  perfil: PerfilSalida;
+  onValidated: () => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  const [pidiendo, setPidiendo] = useState(false);
+  const [working, setWorking] = useState<"aprobar" | "cambios" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const c = perfil.contenido;
+  const cfg = PERFIL_STATUS_CONFIG[perfil.status];
+  const esperaValidacion = perfil.status === "en_validacion";
+
+  const decidir = async (decision: "aprobar" | "cambios") => {
+    setWorking(decision);
+    setError(null);
+    try {
+      await validarPerfil(solicitudId, decision, decision === "cambios" ? feedback.trim() : undefined);
+      setPidiendo(false);
+      setFeedback("");
+      onValidated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  return (
+    <Card className={esperaValidacion ? "border-2 border-blue-300" : ""}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          🎯 Perfil de salida del curso
+          <Badge className={cfg.color}>{cfg.label}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Objetivo</p>
+          <p className="mt-1 text-gray-800">{c.objetivo_general}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Al terminar, tu gente va a poder…
+          </p>
+          <ul className="mt-1 space-y-1">
+            {c.competencias.map((comp, i) => (
+              <li key={i} className="flex gap-2 text-gray-800"><span className="text-green-600">✓</span> {comp}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Temario</p>
+          <div className="mt-2 space-y-2">
+            {c.temario.map((m, i) => (
+              <div key={i} className="rounded-lg border p-3">
+                <p className="font-medium text-gray-900">{i + 1}. {m.modulo}</p>
+                <ul className="ml-5 mt-1 list-disc text-gray-600">
+                  {m.temas.map((t, j) => <li key={j}>{t}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+        {c.fuera_de_alcance && (
+          <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+            <b>Queda fuera de este curso:</b> {c.fuera_de_alcance}
+          </p>
+        )}
+
+        {error && <p className="rounded bg-red-50 p-2 text-red-700">{error}</p>}
+
+        {esperaValidacion && (
+          <div className="space-y-3 border-t pt-4">
+            <p className="font-medium text-gray-900">
+              ¿Este perfil refleja lo que necesitás? Tu validación habilita el diseño del curso.
+            </p>
+            {pidiendo ? (
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Contanos qué falta, sobra o cambiarías…"
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  rows={3}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => decidir("cambios")}
+                    disabled={working !== null || !feedback.trim()}
+                    className="bg-orange-500 hover:bg-orange-600"
+                  >
+                    {working === "cambios" ? "Enviando…" : "Enviar pedido de cambios"}
+                  </Button>
+                  <Button variant="outline" onClick={() => setPidiendo(false)}>Cancelar</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => decidir("aprobar")}
+                  disabled={working !== null}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  {working === "aprobar" ? "Aprobando…" : "✓ Aprobar perfil"}
+                </Button>
+                <Button variant="outline" onClick={() => setPidiendo(true)} disabled={working !== null}>
+                  ✎ Pedir cambios
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {perfil.status === "con_cambios" && (
+          <p className="rounded-lg bg-orange-50 p-3 text-orange-700">
+            Pediste cambios — el equipo de Learning está ajustando el perfil y te va a llegar de nuevo.
+          </p>
+        )}
+        {perfil.status === "aprobado" && (
+          <p className="rounded-lg bg-green-50 p-3 text-green-700">
+            ✓ Aprobaste este perfil{perfil.validado_at ? "" : ""} — el curso se diseña sobre esta base.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

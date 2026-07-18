@@ -176,6 +176,56 @@ def notify_nueva_solicitud(
     )
 
 
+def notify_perfil_en_validacion(
+    email: str, solicitud_id: str, curso: str, company: dict | None = None,
+) -> None:
+    """Avisa al solicitante que el perfil de salida espera su validación."""
+    url = f"{_app_url(company)}/solicitante/solicitud/{solicitud_id}"
+    cuerpo = (
+        f"<p>El equipo de Learning definió el <strong>perfil de salida</strong> (qué va a "
+        f"aprender la gente y el temario) del curso <strong>{curso}</strong>.</p>"
+        f"<p>Necesitamos tu validación para avanzar con el diseño.</p>"
+    )
+    send_email(
+        email, f"Validá el perfil de salida de «{curso}»",
+        _shell("Perfil de salida listo para validar ✅", cuerpo, "Revisar y validar", url, company=company),
+        from_name=_from_name(company),
+    )
+
+
+def notify_perfil_resultado(
+    solicitud_id: str, curso: str, aprobado: bool, feedback: str | None,
+    asignado: str | None = None, company: dict | None = None,
+) -> None:
+    """Avisa a Learning (asignado o equipo) el resultado de la validación."""
+    if asignado:
+        destinatarios: list[str] | str = asignado
+    else:
+        domains = (company or {}).get("learning_domains") or LEARNING_DOMAINS
+        try:
+            from firebase_admin import auth as fb_auth
+            destinatarios = [
+                u.email for u in fb_auth.list_users().iterate_all()
+                if u.email and u.email.split("@")[-1] in domains
+            ]
+        except Exception:
+            destinatarios = []
+    if not destinatarios:
+        return
+    url = f"{_app_url(company)}/dashboard/perfil?solicitud={solicitud_id}"
+    if aprobado:
+        titulo, asunto = "Perfil de salida aprobado 🎉", f"«{curso}»: perfil aprobado"
+        cuerpo = f"<p>El área solicitante aprobó el perfil de salida de <strong>{curso}</strong>. Ya se puede diseñar la malla.</p>"
+    else:
+        titulo, asunto = "Perfil de salida con cambios ✏️", f"«{curso}»: el área pidió cambios"
+        cuerpo = (
+            f"<p>El área solicitante pidió cambios en el perfil de <strong>{curso}</strong>:</p>"
+            f"<blockquote style='border-left:3px solid #ccc;margin:12px 0;padding:6px 14px;color:#555'>{feedback or ''}</blockquote>"
+        )
+    send_email(destinatarios, asunto, _shell(titulo, cuerpo, "Abrir perfil", url, company=company),
+               from_name=_from_name(company))
+
+
 def notify_asignacion(email: str, solicitud_id: str, curso: str, company: dict | None = None) -> None:
     url = f"{_app_url(company)}/dashboard/solicitudes/{solicitud_id}"
     cuerpo = f"<p>Te asignaron la solicitud <strong>{curso}</strong>.</p>"

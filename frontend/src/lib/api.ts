@@ -183,6 +183,28 @@ export interface Curso {
   documentacion?: string;
 }
 
+// Perfil de Salida (temario) — contrato pedagógico que valida el área
+// solicitante antes de diseñar la malla.
+export interface PerfilContenido {
+  objetivo_general: string;
+  competencias: string[];
+  temario: Array<{ modulo: string; temas: string[] }>;
+  fuera_de_alcance?: string | null;
+}
+
+export type PerfilStatus = "borrador" | "en_validacion" | "con_cambios" | "aprobado";
+
+export interface PerfilSalida {
+  contenido: PerfilContenido;
+  status: PerfilStatus;
+  version: number;
+  validacion_feedback?: string | null;
+  validado_por?: string | null;
+  validado_at?: string;
+  enviado_at?: string;
+  updated_at?: string;
+}
+
 export interface Solicitud {
   id: string;
   solicitante: Solicitante;
@@ -191,10 +213,55 @@ export interface Solicitud {
   prioridad: "alta" | "media" | "baja";
   asignado_a?: string;
   malla_id?: string;
+  perfil_salida?: PerfilSalida;
   created_at?: string;
   updated_at?: string;
   comentarios?: Comentario[];
 }
+
+export async function generarPerfil(
+  solicitudId: string,
+  feedback?: string
+): Promise<{ perfil_salida: PerfilSalida }> {
+  const res = await apiFetch(`${API_BASE}/generar_perfil_endpoint`, {
+    method: "POST",
+    body: JSON.stringify({ solicitud_id: solicitudId, feedback }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function guardarPerfil(
+  solicitudId: string,
+  opts: { contenido?: PerfilContenido; accion?: "enviar_validacion" }
+): Promise<{ ok: boolean; perfil_salida: PerfilSalida }> {
+  const res = await apiFetch(`${API_BASE}/guardar_perfil`, {
+    method: "PUT",
+    body: JSON.stringify({ solicitud_id: solicitudId, ...opts }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function validarPerfil(
+  solicitudId: string,
+  decision: "aprobar" | "cambios",
+  feedback?: string
+): Promise<{ ok: boolean; status: PerfilStatus }> {
+  const res = await apiFetch(`${API_BASE}/validar_perfil`, {
+    method: "POST",
+    body: JSON.stringify({ solicitud_id: solicitudId, decision, feedback }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export const PERFIL_STATUS_CONFIG: Record<PerfilStatus, { label: string; color: string }> = {
+  borrador: { label: "Borrador", color: "bg-gray-100 text-gray-700" },
+  en_validacion: { label: "Esperando validación del área", color: "bg-blue-100 text-blue-800" },
+  con_cambios: { label: "El área pidió cambios", color: "bg-orange-100 text-orange-800" },
+  aprobado: { label: "Aprobado por el área", color: "bg-green-100 text-green-800" },
+};
 
 export interface Comentario {
   id: string;
@@ -537,10 +604,13 @@ export async function crearMalla(data: {
   curso: Curso;
   // Template de diseño instruccional validado por el humano.
   template_id?: string;
+  // Perfil de salida aprobado por el área: la malla debe respetarlo.
+  perfil_salida?: PerfilContenido;
 }): Promise<{ id: string; malla: MallaItem[]; duracion_total: number }> {
   // The API expects flat structure, not nested curso
   const payload = {
     template_id: data.template_id,
+    perfil_salida: data.perfil_salida,
     nombre: data.curso.nombre,
     course_type: data.curso.course_type || "compliance",
     audiencia: data.curso.audiencia,

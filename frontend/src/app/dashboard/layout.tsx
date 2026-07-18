@@ -15,16 +15,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const navItems = [
-  { href: "/dashboard/configuracion", label: "Configuración", icon: "gear" },
-  { href: "/dashboard", label: "Solicitudes", icon: "inbox" },
-  { href: "/dashboard/templates", label: "Templates", icon: "layers" },
-  { href: "/dashboard/malla", label: "Malla", icon: "grid" },
-  { href: "/dashboard/diseno", label: "Diseño Instruccional", icon: "palette" },
-  { href: "/dashboard/contenido", label: "Contenido", icon: "video" },
-  { href: "/dashboard/scorm", label: "SCORM", icon: "package" },
-  { href: "/dashboard/lms", label: "LMS", icon: "upload" },
-  { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
+// Sidebar agrupado: el proceso de diseño (el flujo del curso, en orden) separado
+// de la gestión de la plataforma.
+const navSections: Array<{ label: string | null; items: Array<{ href: string; label: string; icon: string }> }> = [
+  {
+    label: "Proceso de diseño",
+    items: [
+      { href: "/dashboard/perfil", label: "Perfil de Salida", icon: "target" },
+      { href: "/dashboard/malla", label: "Malla", icon: "grid" },
+      { href: "/dashboard/diseno", label: "Diseño Instruccional", icon: "palette" },
+      { href: "/dashboard/contenido", label: "Contenido", icon: "video" },
+      { href: "/dashboard/scorm", label: "SCORM", icon: "package" },
+      { href: "/dashboard/lms", label: "LMS", icon: "upload" },
+    ],
+  },
+  {
+    label: "Gestión",
+    items: [
+      { href: "/dashboard", label: "Solicitudes", icon: "inbox" },
+      { href: "/dashboard/templates", label: "Templates", icon: "layers" },
+      { href: "/dashboard/configuracion", label: "Configuración", icon: "gear" },
+      { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
+    ],
+  },
 ];
 
 const icons: Record<string, React.ReactNode> = {
@@ -37,6 +50,13 @@ const icons: Record<string, React.ReactNode> = {
   layers: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    </svg>
+  ),
+  target: (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <circle cx="12" cy="12" r="9" strokeWidth={2} />
+      <circle cx="12" cy="12" r="5" strokeWidth={2} />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   ),
   inbox: (
@@ -156,29 +176,38 @@ export default function DashboardLayout({
           </div>
         )}
 
-        {/* Navigation */}
-        <nav className="flex-1 p-4">
-          <ul className="space-y-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-brand/10 text-brand"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                    }`}
-                  >
-                    {icons[item.icon]}
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+        {/* Navigation (agrupada por secciones) */}
+        <nav className="flex-1 overflow-y-auto p-4">
+          {navSections.map((section) => (
+            <div key={section.label ?? "_"} className="mb-4">
+              {section.label && (
+                <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                  {section.label}
+                </p>
+              )}
+              <ul className="space-y-1">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href ||
+                    (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-brand/10 text-brand"
+                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                        }`}
+                      >
+                        {icons[item.icon]}
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         {/* User */}

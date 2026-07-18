@@ -76,6 +76,9 @@ export default function MallaPage() {
   const [sugerencia, setSugerencia] = useState<TemplateSugerencia | null>(null);
   const [templates, setTemplates] = useState<MallaTemplate[]>([]);
   const [templateElegido, setTemplateElegido] = useState<string>("");
+  // Gate del Perfil de Salida: la malla se diseña sobre el perfil aprobado por
+  // el área. "sinPerfil" es el override explícito (no recomendado).
+  const [sinPerfil, setSinPerfil] = useState(false);
   const [iterating, setIterating] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +159,10 @@ export default function MallaPage() {
         solicitud_id: solicitud.id,
         curso: solicitud.curso,
         template_id: templateElegido || undefined,
+        perfil_salida:
+          solicitud.perfil_salida?.status === "aprobado"
+            ? solicitud.perfil_salida.contenido
+            : undefined,
       });
       setMallaId(result.id);
       setMallaItems(result.malla);
@@ -387,7 +394,35 @@ export default function MallaPage() {
                     </div>
                   </div>
                 )}
-                {!sugerencia ? (
+                {/* Gate: la malla se diseña sobre el Perfil de Salida aprobado */}
+                {solicitud?.perfil_salida?.status !== "aprobado" && !sinPerfil ? (
+                  <div className="space-y-3 rounded-lg border-2 border-yellow-300 bg-yellow-50 p-4">
+                    <p className="font-medium text-yellow-900">
+                      🎯 Falta el Perfil de Salida validado
+                    </p>
+                    <p className="text-sm text-yellow-800">
+                      {solicitud?.perfil_salida?.status === "en_validacion"
+                        ? "El perfil está esperando la validación del área solicitante."
+                        : solicitud?.perfil_salida?.status === "con_cambios"
+                        ? "El área pidió cambios en el perfil — ajustalo y reenvialo."
+                        : "Antes de diseñar la malla, definí el perfil de salida (competencias + temario) y validalo con el área que pidió el curso."}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        onClick={() => router.push(`/dashboard/perfil?solicitud=${solicitud?.id}`)}
+                        className="bg-brand hover:bg-brand/90"
+                      >
+                        Ir al Perfil de Salida →
+                      </Button>
+                      <button
+                        className="text-xs text-gray-400 underline"
+                        onClick={() => setSinPerfil(true)}
+                      >
+                        generar sin perfil (no recomendado)
+                      </button>
+                    </div>
+                  </div>
+                ) : !sugerencia ? (
                   <Button
                     onClick={handleSuggestTemplate}
                     disabled={sugiriendo}

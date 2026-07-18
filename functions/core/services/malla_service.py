@@ -107,6 +107,7 @@ def generar_malla(
     documentacion: str = "",
     empresa: Dict[str, Any] | None = None,
     template: Dict[str, Any] | None = None,
+    perfil: Dict[str, Any] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Genera una malla curricular usando GPT-4.
@@ -121,6 +122,17 @@ def generar_malla(
     docs_section = ""
     if documentacion:
         docs_section = f"\n\nDOCUMENTACIÓN DE REFERENCIA:{documentacion[:8000]}"
+
+    # Perfil de salida validado por el área solicitante: es el CONTRATO del
+    # curso — la malla debe cubrir sus competencias y seguir su temario.
+    if perfil:
+        docs_section += f"""
+
+PERFIL DE SALIDA APROBADO POR EL ÁREA (obligatorio respetarlo):
+- Objetivo general: {perfil.get('objetivo_general', '')}
+- Competencias comprometidas: {json.dumps(perfil.get('competencias', []), ensure_ascii=False)}
+- Temario validado (los bloques de la malla deben seguir estos módulos):
+{json.dumps(perfil.get('temario', []), indent=2, ensure_ascii=False)}"""
 
     course_type = (course_type or "compliance").strip().lower()
     # Template validado por el humano (Firestore) o, legacy, el perfil hardcodeado
