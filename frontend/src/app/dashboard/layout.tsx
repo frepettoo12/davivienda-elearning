@@ -19,6 +19,11 @@ import {
 // de la gestión de la plataforma.
 const navSections: Array<{ label: string | null; items: Array<{ href: string; label: string; icon: string }> }> = [
   {
+    // Solicitudes es la bandeja de entrada: arriba de todo, sin sección.
+    label: null,
+    items: [{ href: "/dashboard", label: "Solicitudes", icon: "inbox" }],
+  },
+  {
     label: "Proceso de diseño",
     items: [
       { href: "/dashboard/perfil", label: "Perfil de Salida", icon: "target" },
@@ -32,7 +37,6 @@ const navSections: Array<{ label: string | null; items: Array<{ href: string; la
   {
     label: "Gestión",
     items: [
-      { href: "/dashboard", label: "Solicitudes", icon: "inbox" },
       { href: "/dashboard/templates", label: "Templates", icon: "layers" },
       { href: "/dashboard/configuracion", label: "Configuración", icon: "gear" },
       { href: "/dashboard/wiki", label: "Wiki", icon: "book" },
