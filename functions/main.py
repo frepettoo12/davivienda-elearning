@@ -1800,12 +1800,18 @@ def intake_preguntas(req: https_fn.Request, ctx: RequestContext) -> https_fn.Res
     if not api_key:
         return _error("Missing OPENAI_API_KEY", 500)
 
-    prompt = f"""Sos un diseñador instruccional entrevistando a quien PIDE un curso e-learning
-(no es experto en formación). Hacé entre 2 y 4 PREGUNTAS DE CLARIFICACIÓN concretas y fáciles de
-responder, que te falten para diseñar bien el curso. Deben ser específicas al tipo y objetivo,
-no genéricas. Ejemplos: para un onboarding preguntar si es presencial/remoto/híbrido, si es para
-un rol puntual o transversal; para compliance preguntar qué normativa/versión aplica y qué pasa si
-se incumple.
+    prompt = f"""Sos un diseñador instruccional entrevistando a quien PIDE un curso (no es experto
+en formación). El curso SIEMPRE es e-learning autogestionado y asincrónico (módulos digitales que
+el participante hace solo, a su ritmo) — NO preguntes por modalidad presencial/remoto/híbrido, ni
+horarios, ni logística de dictado: eso ya está definido.
+
+Hacé entre 2 y 4 PREGUNTAS DE CLARIFICACIÓN concretas y fáciles de responder, que te falten para
+diseñar bien el CONTENIDO del curso. Enfocate en: alcance y profundidad, público exacto y su nivel
+de partida, qué debe saber HACER al terminar, ejemplos/casos reales de la empresa a incluir,
+sistemas o procesos internos involucrados, y qué NO debe cubrir. Deben ser específicas al tipo y
+objetivo, no genéricas. Ejemplos válidos: para un onboarding, "¿aplica a un rol puntual o es
+transversal a toda la empresa?", "¿qué herramientas internas debe conocer el ingresante?"; para
+compliance, "¿qué normativa/versión aplica y qué pasa si se incumple?".
 
 SOLICITUD (borrador):
 {_curso_para_prompt(curso)}
@@ -1871,11 +1877,12 @@ def intake_documentos(req: https_fn.Request, ctx: RequestContext) -> https_fn.Re
         for c in clarificaciones if c.get('pregunta')
     ) or "(sin respuestas de clarificación)"
 
-    prompt = f"""Sos un diseñador instruccional. Recomendá entre 2 y 10 DOCUMENTOS o TEXTOS internos
-que quien pide este curso debería adjuntar como referencia para que el material sea preciso y
-alineado a la realidad de la empresa. Para cada uno, dá un título claro del documento y una frase
-de por qué clarifica el curso. Ejemplos para un onboarding: "Misión y valores", "Política de
-vacaciones y licencias", "Organigrama del área", "Beneficios y prestaciones".
+    prompt = f"""Sos un diseñador instruccional de cursos e-learning autogestionados. Recomendá entre
+2 y 10 DOCUMENTOS o TEXTOS internos que quien pide este curso debería adjuntar como referencia para
+que el CONTENIDO del curso sea preciso y alineado a la realidad de la empresa (políticas, manuales,
+procesos, ejemplos reales). Para cada uno, dá un título claro del documento y una frase de por qué
+clarifica el curso. Ejemplos para un onboarding: "Misión y valores", "Política de vacaciones y
+licencias", "Organigrama del área", "Beneficios y prestaciones".
 
 SOLICITUD (borrador):
 {_curso_para_prompt(curso)}
