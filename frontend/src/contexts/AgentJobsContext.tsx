@@ -94,6 +94,7 @@ export function AgentJobsProvider({ children }: { children: ReactNode }) {
         const reader = resp.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
+        let gotDone = false;
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -107,8 +108,16 @@ export function AgentJobsProvider({ children }: { children: ReactNode }) {
             if (!ev || !dataLine) continue;
             let d: Record<string, unknown>;
             try { d = JSON.parse(dataLine); } catch { continue; }
+            if (ev === "done") gotDone = true;
             handleEvent(key, ev, d);
           }
+        }
+        // El stream se cerró sin evento "done" (server caído / red cortada):
+        // liberar el lock para que el recurso se pueda reintentar (si no, queda
+        // running:true para siempre y start() lo rechaza).
+        if (!gotDone) {
+          addEv(key, "error", "✗", "La conexión con el agente se interrumpió antes de terminar.");
+          patch(key, (j) => ({ ...j, running: false, status: "interrumpido" }));
         }
       } catch (e) {
         addEv(key, "error", "✗", `Error de conexión con el agente (${AGENT_URL}): ${(e as Error).message}`);

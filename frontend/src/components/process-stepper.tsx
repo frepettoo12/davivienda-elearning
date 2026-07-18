@@ -13,7 +13,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  listarSolicitudes,
   obtenerMalla,
   obtenerSolicitud,
   Malla,
@@ -54,10 +53,9 @@ export function ProcessStepper({ current, solicitudId, mallaId }: Props) {
           if (s.malla_id) m = await obtenerMalla(s.malla_id).catch(() => null);
         } else if (mallaId) {
           m = await obtenerMalla(mallaId).catch(() => null);
-          // La relación malla→solicitud es inversa: buscarla en el listado.
-          const lista = await listarSolicitudes({}).catch(() => null);
-          const found = lista?.solicitudes.find((x) => x.malla_id === mallaId);
-          if (found) s = await obtenerSolicitud(found.id).catch(() => null);
+          // obtener_malla ya devuelve solicitud_id (relación inversa resuelta en
+          // el backend), sin depender del listado paginado.
+          if (m?.solicitud_id) s = await obtenerSolicitud(m.solicitud_id).catch(() => null);
         }
         if (!cancelled) {
           setSol(s);

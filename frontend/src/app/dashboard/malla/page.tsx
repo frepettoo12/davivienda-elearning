@@ -100,8 +100,14 @@ export default function MallaPage() {
   const loadEnProceso = async () => {
     setLoading(true);
     try {
-      const result = await listarSolicitudes({ status: "en_proceso" });
-      setEnProcesoList(result.solicitudes);
+      // Incluye también trabajos ya completados/aprobados (antes solo
+      // "en_proceso" y los cursos terminados desaparecían del landing).
+      const result = await listarSolicitudes({});
+      setEnProcesoList(
+        result.solicitudes.filter(
+          (s) => s.status === "en_proceso" || s.status === "completado" || s.status === "aprobado"
+        )
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -153,6 +159,9 @@ export default function MallaPage() {
   // Paso 2 (tras validación humana del template): generar la malla.
   const handleGenerateMalla = async () => {
     if (!solicitud) return;
+    // Guard contra doble generación: si ya hay malla, no crear otra
+    // (refuerza el disabled={generating} del botón).
+    if (mallaId) return;
     setGenerating(true);
     setError(null);
     try {
@@ -201,7 +210,9 @@ export default function MallaPage() {
   const addRow = () => {
     setMallaItems((prev) => [
       ...prev,
-      { id: prev.length + 1, etapa: "Desarrollo", bloque: "", tipo_recurso: "Infografía", recurso: "", descripcion: "", duracion_min: 2 } as MallaItem,
+      // id = max + 1 (no length + 1): tras borrar filas, length + 1 puede
+      // colisionar con un id existente.
+      { id: Math.max(0, ...prev.map((i) => i.id)) + 1, etapa: "Desarrollo", bloque: "", tipo_recurso: "Infografía", recurso: "", descripcion: "", duracion_min: 2 } as MallaItem,
     ]);
   };
   const deleteRow = (index: number) => setMallaItems((prev) => prev.filter((_, i) => i !== index));

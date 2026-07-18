@@ -9,7 +9,6 @@ import { useAgentJobs } from "@/contexts/AgentJobsContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { ProcessStepper } from "@/components/process-stepper";
 
 const SHELL_MODELS = [
@@ -127,8 +126,14 @@ export default function ScormPage() {
   const loadEnProceso = async () => {
     setLoading(true);
     try {
-      const result = await listarSolicitudes({ status: "en_proceso" });
-      setEnProcesoList(result.solicitudes.filter(s => s.malla_id));
+      // Incluye también trabajos completados/aprobados (antes solo "en_proceso"
+      // y los cursos terminados desaparecían del landing).
+      const result = await listarSolicitudes({});
+      setEnProcesoList(
+        result.solicitudes.filter(
+          (s) => s.malla_id && (s.status === "en_proceso" || s.status === "completado" || s.status === "aprobado")
+        )
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -373,7 +378,8 @@ export default function ScormPage() {
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                   Generando paquete SCORM...
                 </div>
-                <Progress value={66} className="h-2" />
+                {/* Sin barra de progreso: el empaquetado es un solo request sin
+                    señal de avance real y un % hardcodeado confunde. */}
               </div>
             ) : (
               <div className="space-y-2">

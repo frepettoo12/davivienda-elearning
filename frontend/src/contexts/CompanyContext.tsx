@@ -60,10 +60,10 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     } catch {
       /* storage bloqueado */
     }
-    // Reload completo: todas las páginas tienen datos de la empresa anterior en
-    // estado (listas, mallas); recargar garantiza que todo refetchee con el
-    // header X-Company-Id nuevo.
-    window.location.reload();
+    // Ir a la raíz del dashboard (NO recargar la URL actual): si estabas en
+    // ?solicitud=/?malla= de la empresa anterior, esos IDs no existen en la
+    // nueva y darían 404. La navegación a /dashboard fuerza estado limpio.
+    window.location.href = "/dashboard";
   };
 
   useEffect(() => {

@@ -129,7 +129,25 @@ app.use(
   }
 );
 // Videos compuestos (Opción C: avatar + slides HTML + FFmpeg)
-app.use("/composed", express.static(COMPOSED_ROOT, { etag: false, lastModified: false, cacheControl: false }));
+// Auth por header o ?auth= + tenancy: companies/{X}/... solo para la empresa X
+// (o superadmin); los archivos legacy en la raíz solo para Davivienda/superadmin.
+app.use(
+  "/composed",
+  requireAuth,
+  (req, res, next) => {
+    let rel;
+    try { rel = decodeURIComponent(req.path); } catch { return res.sendStatus(400); }
+    rel = rel.replace(/^\/+/, "");
+    const m = /^companies\/([^/]+)\//.exec(rel);
+    if (m) {
+      if (m[1] !== req.company?.id && !req.company?.isSuperadmin) return res.sendStatus(403);
+    } else if (req.company?.id !== DEFAULT_COMPANY_ID && !req.company?.isSuperadmin) {
+      return res.sendStatus(403);
+    }
+    next();
+  },
+  express.static(COMPOSED_ROOT, { etag: false, lastModified: false, cacheControl: false })
+);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

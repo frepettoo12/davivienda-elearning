@@ -28,10 +28,17 @@ from google.cloud.firestore import SERVER_TIMESTAMP
 logger = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
+_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def _split(v) -> list[str]:
     return [s.strip() for s in str(v).split(",") if s and str(s).strip()] if v else []
+
+
+def _hex(v, fallback: str) -> str:
+    """Color hex validado (evita inyección CSS/HTML en el shell SCORM)."""
+    s = str(v or "").strip()
+    return s if _HEX_RE.match(s) else fallback
 
 
 def _row_to_company(row: dict) -> tuple[str, dict]:
@@ -52,8 +59,8 @@ def _row_to_company(row: dict) -> tuple[str, dict]:
         "descripcion_prompt": str(row.get("descripcion_prompt") or "").strip(),
         "branding": {
             "nombre_display": f"{nombre} E-Learning",
-            "color_primario": str(row.get("color_primario") or "#DA291C").strip(),
-            "color_acento": str(row.get("color_acento") or "#FFD700").strip(),
+            "color_primario": _hex(row.get("color_primario"), "#DA291C"),
+            "color_acento": _hex(row.get("color_acento"), "#FFD700"),
             "logo_url": str(row.get("logo_url") or "").strip() or None,
             "fuente_titulos": str(row.get("fuente_titulos") or "Montserrat").strip(),
             "fuente_texto": str(row.get("fuente_texto") or "Open Sans").strip(),
@@ -102,21 +109,36 @@ def sync_companies_from_sheet(db, sheet_id: str) -> dict:
     companies = fetch_sheet_companies(sheet_id)
     if not companies:
         logger.warning("Sheet sin filas de empresa válidas — no se sincroniza nada.")
-        return {"synced": 0, "created": [], "skipped": []}
+        return {"synced": 0, "created": [], "skipped": [], "rejected": []}
 
-    created, skipped = [], []
+    # Índice dominio→empresa existente, para rechazar filas que roben dominios
+    # de otra empresa (evita domain-hijack de logins).
+    dominios_tomados: dict[str, str] = {}
+    for snap in db.collection("companies").stream():
+        for d in (snap.to_dict() or {}).get("dominios") or []:
+            dominios_tomados[d.lower()] = snap.id
+
+    created, skipped, rejected = [], [], []
     for cid, data in companies.items():
         ref = db.collection("companies").document(cid)
         if ref.get().exists:
             skipped.append(cid)
             continue
+        # ¿Algún dominio de esta fila ya pertenece a otra empresa?
+        choque = [d for d in data.get("dominios") or [] if dominios_tomados.get(d.lower(), cid) != cid]
+        if choque:
+            logger.error("Fila '%s' rechazada: dominios %s ya pertenecen a otra empresa", cid, choque)
+            rejected.append({"company_id": cid, "dominios_en_conflicto": choque})
+            continue
         data["updated_at"] = SERVER_TIMESTAMP
         data["synced_from_sheet"] = True
         ref.set(data)
         created.append(cid)
+        for d in data.get("dominios") or []:
+            dominios_tomados[d.lower()] = cid
 
     if created:
         logger.info("Empresas NUEVAS desde el sheet: %s", created)
-    logger.info("Sync de empresas OK: %d filas (nuevas: %d, existentes sin tocar: %d)",
-                len(companies), len(created), len(skipped))
-    return {"synced": len(companies), "created": created, "skipped": skipped}
+    logger.info("Sync de empresas OK: %d filas (nuevas: %d, existentes: %d, rechazadas: %d)",
+                len(companies), len(created), len(skipped), len(rejected))
+    return {"synced": len(companies), "created": created, "skipped": skipped, "rejected": rejected}

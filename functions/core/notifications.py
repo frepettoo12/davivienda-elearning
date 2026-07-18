@@ -104,9 +104,12 @@ def _shell(
     cta_url: str | None = None,
     company: dict | None = None,
 ) -> str:
+    import html as _html
     b = _branding(company)
+    # nombre_display viene de la config de la empresa (editable) → escapar para
+    # no inyectar HTML en el email. El color ya se valida como hex al guardarse.
     primario = b["color_primario"]
-    nombre = b["nombre_display"]
+    nombre = _html.escape(b["nombre_display"])
     cta = ""
     if cta_text and cta_url:
         cta = (

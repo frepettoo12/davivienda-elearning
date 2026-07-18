@@ -211,8 +211,9 @@ export default function ContenidoPage() {
       // sigan visibles tras recargar.
       const restored: Record<number, ResourceGeneration> = {};
       const toResume: Array<{ jobId: string; resourceId: number }> = [];
+      const toResumeAudio: Array<{ jobId: string; resourceId: number }> = [];
       for (const g of malla.guiones || []) {
-        const c = g.contenido as { audio_url?: string; video_url?: string; video_job_id?: string };
+        const c = g.contenido as { audio_url?: string; video_url?: string; video_job_id?: string; audio_job_id?: string };
         if (c.audio_url || c.video_url) {
           restored[g.id] = {
             ...(c.audio_url ? { audioStatus: "completed", audioUrl: c.audio_url } : {}),
@@ -224,9 +225,15 @@ export default function ContenidoPage() {
           restored[g.id] = { ...(restored[g.id] || {}), videoStatus: "processing", videoJobId: c.video_job_id };
           toResume.push({ jobId: c.video_job_id, resourceId: g.id });
         }
+        // Audio iniciado pero sin URL final → reanudar polling (igual que el video).
+        if (c.audio_job_id && !c.audio_url) {
+          restored[g.id] = { ...(restored[g.id] || {}), audioStatus: "processing", audioJobId: c.audio_job_id };
+          toResumeAudio.push({ jobId: c.audio_job_id, resourceId: g.id });
+        }
       }
       if (Object.keys(restored).length) setGenerations(restored);
       toResume.forEach(({ jobId, resourceId }) => pollJob(jobId, resourceId, "video"));
+      toResumeAudio.forEach(({ jobId, resourceId }) => pollJob(jobId, resourceId, "audio"));
     } catch (err) {
       setError("Error al cargar la malla");
       console.error(err);
@@ -244,6 +251,9 @@ export default function ContenidoPage() {
     type: "audio" | "video",
     onComplete?: (url: string) => void
   ) => {
+    // Tope de ~10 min (200 × 3s) para no pollear un job colgado para siempre.
+    const MAX_TRIES = 200;
+    let tries = 0;
     const poll = async () => {
       try {
         const job = await obtenerJob(jobId);
@@ -260,19 +270,27 @@ export default function ContenidoPage() {
         }));
 
         if (job.status === "completed" && job.output_url) {
-          // Persistir la URL en el guión para que sobreviva al recargar.
+          // Persistir la URL en el guión y limpiar el job_id (ya no hace falta reanudar).
           if (mallaId) {
             const field = type === "audio" ? "audio_url" : "video_url";
-            void guardarGuion(mallaId, resourceId, { [field]: job.output_url }).catch(() => {});
+            const jobField = type === "audio" ? "audio_job_id" : "video_job_id";
+            void guardarGuion(mallaId, resourceId, { [field]: job.output_url, [jobField]: null }).catch(() => {});
           }
           if (onComplete) onComplete(job.output_url);
         } else if (job.status === "pending" || job.status === "processing") {
-          setTimeout(poll, 3000);
+          if (++tries < MAX_TRIES) {
+            setTimeout(poll, 3000);
+          } else {
+            setGenerations(prev => ({
+              ...prev,
+              [resourceId]: { ...prev[resourceId], ...(type === "audio" ? { audioStatus: "failed" } : { videoStatus: "failed" }) },
+            }));
+          }
         }
       } catch (err) {
-        // Reintentar ante errores transitorios (no matar el polling).
+        // Reintentar ante errores transitorios (no matar el polling), con tope.
         console.error("Error polling job (reintenta):", err);
-        setTimeout(poll, 5000);
+        if (++tries < MAX_TRIES) setTimeout(poll, 5000);
       }
     };
     poll();
@@ -302,6 +320,8 @@ export default function ContenidoPage() {
           audioStatus: "pending",
         }
       }));
+      // Persistir el job_id para reanudar el polling si se recarga (como el video).
+      void guardarGuion(mallaId, item.id, { audio_job_id: result.job_id }).catch(() => {});
       pollJob(result.job_id, item.id, "audio");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al generar audio");
@@ -600,8 +620,10 @@ export default function ContenidoPage() {
                           [newGuion.id]: (prev[newGuion.id] || 0) + 1,
                         }));
                         // Persistir el HTML editado para que sobreviva al recargar.
+                        // Si falla, avisar: si no, el trabajo del editor se pierde en silencio.
                         if (mallaId && typeof newGuion.contenido.html === "string") {
-                          void guardarGuion(mallaId, newGuion.id, { html: newGuion.contenido.html }).catch(() => {});
+                          void guardarGuion(mallaId, newGuion.id, { html: newGuion.contenido.html })
+                            .catch(() => setError("No se pudo guardar la edición — reintentá el cambio."));
                         }
                       }}
                     />

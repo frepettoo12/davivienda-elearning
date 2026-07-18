@@ -15,6 +15,7 @@ import {
   PERFIL_STATUS_CONFIG,
   type Usuario,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ export default function SolicitudDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
+  const { user } = useAuth();
 
   const [solicitud, setSolicitud] = useState<Solicitud | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,9 +103,11 @@ export default function SolicitudDetailPage() {
         const u = usuarios.find(x => x.email === email);
         return u && comentario.includes(`@${u.nombre}`);
       });
+      // Autor = el usuario logueado (puede no ser el solicitante original);
+      // fallback a los datos del solicitante si no hay sesión.
       await agregarComentario(solicitud.id, comentario, {
-        email: solicitud.solicitante.email,
-        nombre: solicitud.solicitante.nombre,
+        email: user?.email || solicitud.solicitante.email,
+        nombre: user?.displayName || user?.email || solicitud.solicitante.nombre,
         rol: "solicitante",
       }, activas);
       setComentario("");
@@ -419,12 +423,24 @@ function PerfilValidacion({ solicitudId, perfil, onValidated }: {
     setWorking(decision);
     setError(null);
     try {
-      await validarPerfil(solicitudId, decision, decision === "cambios" ? feedback.trim() : undefined);
+      // Mandamos la versión que estamos viendo: si Learning regeneró en el
+      // medio, el backend devuelve 409 y no aprobamos una versión vieja.
+      await validarPerfil(
+        solicitudId,
+        decision,
+        decision === "cambios" ? feedback.trim() : undefined,
+        perfil.version
+      );
       setPidiendo(false);
       setFeedback("");
       onValidated();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      const msg = e instanceof Error ? e.message : "Error";
+      setError(msg);
+      // Conflicto de versión (409): recargamos para mostrar el perfil nuevo.
+      if (msg.includes("El perfil cambió")) {
+        onValidated();
+      }
     } finally {
       setWorking(null);
     }
@@ -521,7 +537,7 @@ function PerfilValidacion({ solicitudId, perfil, onValidated }: {
         )}
         {perfil.status === "aprobado" && (
           <p className="rounded-lg bg-green-50 p-3 text-green-700">
-            ✓ Aprobaste este perfil{perfil.validado_at ? "" : ""} — el curso se diseña sobre esta base.
+            ✓ Aprobaste este perfil{perfil.validado_at ? ` el ${new Date(perfil.validado_at).toLocaleDateString("es")}` : ""} — el curso se diseña sobre esta base.
           </p>
         )}
       </CardContent>

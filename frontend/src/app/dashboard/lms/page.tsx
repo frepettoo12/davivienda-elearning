@@ -138,8 +138,14 @@ export default function LmsPage() {
   const loadEnProceso = async () => {
     setLoading(true);
     try {
-      const result = await listarSolicitudes({ status: "en_proceso" });
-      setEnProcesoList(result.solicitudes.filter((s) => s.malla_id));
+      // Incluye también trabajos completados/aprobados (antes solo "en_proceso"
+      // y los cursos terminados desaparecían del landing).
+      const result = await listarSolicitudes({});
+      setEnProcesoList(
+        result.solicitudes.filter(
+          (s) => s.malla_id && (s.status === "en_proceso" || s.status === "completado" || s.status === "aprobado")
+        )
+      );
     } catch (err) {
       console.error(err);
     } finally {

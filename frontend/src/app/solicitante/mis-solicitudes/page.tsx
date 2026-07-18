@@ -115,6 +115,11 @@ export default function MisSolicitudesPage() {
                           <Badge variant="outline" className={PRIORIDAD_CONFIG[solicitud.prioridad]?.color}>
                             {PRIORIDAD_CONFIG[solicitud.prioridad]?.label}
                           </Badge>
+                          {solicitud.perfil_status === "en_validacion" && (
+                            <Badge className="animate-pulse border border-amber-300 bg-amber-100 text-amber-800">
+                              ⚠ Perfil para validar
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500 mb-2">
                           Área: {solicitud.area} | Creado: {formatDate(solicitud.created_at)}
@@ -127,6 +132,15 @@ export default function MisSolicitudesPage() {
                         )}
                       </div>
                       <div className="flex gap-2 ml-4">
+                        {solicitud.perfil_status === "en_validacion" && (
+                          <Button
+                            size="sm"
+                            className="bg-amber-500 hover:bg-amber-600"
+                            onClick={() => router.push(`/solicitante/solicitud/${solicitud.id}`)}
+                          >
+                            Validar perfil
+                          </Button>
+                        )}
                         {solicitud.status === "devuelto" && (
                           <Button
                             variant="outline"

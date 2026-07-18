@@ -6,6 +6,24 @@
 import { ResourceComponent, ComponentContent } from "./component-renderer";
 import { Brand, DEFAULT_BRAND, safeFont } from "./brand";
 
+// Escapa texto proveniente del guión/contenido (GPT o ediciones de usuario)
+// para prevenir XSS almacenado en el HTML generado.
+function esc(s: unknown): string {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// URLs interpoladas en atributos/CSS: solo http(s)/data:; si no matchea, se descarta.
+function safeUrl(u: unknown): string {
+  const s = String(u ?? "").trim();
+  return /^(https?:|data:)/i.test(s) && !/['"()\\]/.test(s) ? s : "";
+}
+
+// Valores de color/overlay que vienen del guión: solo caracteres seguros de CSS.
+function safeCssColor(value: string | undefined, fallback: string): string {
+  const s = String(value ?? "").trim();
+  return s && /^[#a-zA-Z0-9(),.%\s-]+$/.test(s) ? s : fallback;
+}
+
 // Config de estilos globales
 export interface ComponentConfig {
   fondo_imagen?: string;
@@ -19,11 +37,11 @@ export interface ComponentContentWithConfig extends ComponentContent {
 }
 
 function getBaseStyles(config?: ComponentConfig, brand: Brand = DEFAULT_BRAND): string {
-  const fondoImagen = config?.fondo_imagen || '';
-  const fondoOverlay = config?.fondo_overlay || 'rgba(0,0,0,0.75)';
+  const fondoImagen = safeUrl(config?.fondo_imagen);
+  const fondoOverlay = safeCssColor(config?.fondo_overlay, 'rgba(0,0,0,0.75)');
   // La config per-recurso (si el guión la trae) le gana al brand de la empresa.
-  const colorPrimario = config?.color_primario || brand.colorPrimario;
-  const colorSecundario = config?.color_secundario || brand.colorSecundario;
+  const colorPrimario = safeCssColor(config?.color_primario, brand.colorPrimario);
+  const colorSecundario = safeCssColor(config?.color_secundario, brand.colorSecundario);
   const fuenteTexto = safeFont(brand.fuenteTexto, "Open Sans");
   const fam = encodeURIComponent(fuenteTexto).replace(/%20/g, "+");
 
@@ -301,19 +319,19 @@ body {
 function generateHeaderHTML(comp: { titulo: string; subtitulo?: string; icono?: string }): string {
   return `
     <div class="comp-header">
-      ${comp.icono ? `<span class="comp-header-icon">${comp.icono}</span>` : '<span class="comp-header-icon">🏠</span>'}
+      ${comp.icono ? `<span class="comp-header-icon">${esc(comp.icono)}</span>` : '<span class="comp-header-icon">🏠</span>'}
       <div>
-        <div class="comp-header-title">${comp.titulo}</div>
-        ${comp.subtitulo ? `<div class="comp-header-subtitle">${comp.subtitulo}</div>` : ''}
+        <div class="comp-header-title">${esc(comp.titulo)}</div>
+        ${comp.subtitulo ? `<div class="comp-header-subtitle">${esc(comp.subtitulo)}</div>` : ''}
       </div>
     </div>`;
 }
 
 function generateIntroHTML(comp: { texto: string; destacado?: boolean }): string {
   if (comp.destacado) {
-    return `<div class="comp-intro-destacado">💡 ${comp.texto}</div>`;
+    return `<div class="comp-intro-destacado">💡 ${esc(comp.texto)}</div>`;
   }
-  return `<p class="comp-intro">${comp.texto}</p>`;
+  return `<p class="comp-intro">${esc(comp.texto)}</p>`;
 }
 
 function generateCardsHTML(comp: { items: Array<{ icono?: string; titulo: string; descripcion: string }>; columnas?: number }): string {
@@ -322,9 +340,9 @@ function generateCardsHTML(comp: { items: Array<{ icono?: string; titulo: string
     <div class="comp-cards comp-cards-${cols}">
       ${comp.items.map(item => `
         <div class="comp-card">
-          ${item.icono ? `<div class="comp-card-icon">${item.icono}</div>` : ''}
-          <div class="comp-card-title">${item.titulo}</div>
-          <div class="comp-card-desc">${item.descripcion}</div>
+          ${item.icono ? `<div class="comp-card-icon">${esc(item.icono)}</div>` : ''}
+          <div class="comp-card-title">${esc(item.titulo)}</div>
+          <div class="comp-card-desc">${esc(item.descripcion)}</div>
         </div>
       `).join('')}
     </div>`;
@@ -334,11 +352,11 @@ function generateListaHTML(comp: { titulo?: string; items: string[]; estilo?: st
   const bullet = comp.estilo === 'checks' ? '✓' : comp.estilo === 'numbers' ? null : '•';
   return `
     <div class="comp-lista">
-      ${comp.titulo ? `<div class="comp-lista-title">${comp.titulo}</div>` : ''}
+      ${comp.titulo ? `<div class="comp-lista-title">${esc(comp.titulo)}</div>` : ''}
       ${comp.items.map((item, i) => `
         <div class="comp-lista-item">
           <span class="comp-lista-bullet">${bullet !== null ? bullet : (i + 1) + '.'}</span>
-          <span>${item}</span>
+          <span>${esc(item)}</span>
         </div>
       `).join('')}
     </div>`;
@@ -347,20 +365,20 @@ function generateListaHTML(comp: { titulo?: string; items: string[]; estilo?: st
 function generateTablaHTML(comp: { titulo?: string; columnas: string[]; filas: Array<{ aspecto: string; valores: string[] }> }): string {
   return `
     <div class="comp-tabla">
-      ${comp.titulo ? `<div class="comp-tabla-title">${comp.titulo}</div>` : ''}
+      ${comp.titulo ? `<div class="comp-tabla-title">${esc(comp.titulo)}</div>` : ''}
       <div class="comp-tabla-container">
         <table>
           <thead>
             <tr>
               <th>Aspecto</th>
-              ${comp.columnas.map(col => `<th>${col}</th>`).join('')}
+              ${comp.columnas.map(col => `<th>${esc(col)}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
             ${comp.filas.map(fila => `
               <tr>
-                <td>${fila.aspecto}</td>
-                ${fila.valores.map(val => `<td>${val}</td>`).join('')}
+                <td>${esc(fila.aspecto)}</td>
+                ${fila.valores.map(val => `<td>${esc(val)}</td>`).join('')}
               </tr>
             `).join('')}
           </tbody>
@@ -375,11 +393,11 @@ function generateAcordeonHTML(comp: { items: Array<{ titulo: string; contenido: 
       ${comp.items.map((item, i) => `
         <div class="comp-acordeon-item" onclick="this.classList.toggle('open')">
           <div class="comp-acordeon-header">
-            <span>${item.titulo}</span>
+            <span>${esc(item.titulo)}</span>
             <span class="comp-acordeon-arrow">▼</span>
           </div>
           <div class="comp-acordeon-content">
-            <div class="comp-acordeon-content-inner">${item.contenido}</div>
+            <div class="comp-acordeon-content-inner">${esc(item.contenido)}</div>
           </div>
         </div>
       `).join('')}
@@ -387,8 +405,8 @@ function generateAcordeonHTML(comp: { items: Array<{ titulo: string; contenido: 
 }
 
 function generateCtaHTML(comp: { texto: string; estilo?: string }): string {
-  const estilo = comp.estilo || 'destacado';
-  return `<div class="comp-cta comp-cta-${estilo}">${comp.texto}</div>`;
+  const estilo = comp.estilo === 'sutil' ? 'sutil' : 'destacado';
+  return `<div class="comp-cta comp-cta-${estilo}">${esc(comp.texto)}</div>`;
 }
 
 function generateSeparadorHTML(): string {
@@ -401,8 +419,8 @@ function generateFlashcardsHTML(comp: { items: Array<{ frente: string; reverso: 
       ${comp.items.map((card, i) => `
         <div class="comp-flashcard" onclick="this.classList.toggle('flipped')">
           <div class="comp-flashcard-inner">
-            <div class="comp-flashcard-front">${card.frente}</div>
-            <div class="comp-flashcard-back">${card.reverso}</div>
+            <div class="comp-flashcard-front">${esc(card.frente)}</div>
+            <div class="comp-flashcard-back">${esc(card.reverso)}</div>
           </div>
         </div>
       `).join('')}
@@ -414,9 +432,9 @@ function generateQuizHTML(comp: { preguntas: Array<{ pregunta: string; opciones:
     <div class="comp-quiz">
       ${comp.preguntas.map((q, i) => `
         <div class="comp-quiz-question">
-          <div class="comp-quiz-text">${i + 1}. ${q.pregunta}</div>
+          <div class="comp-quiz-text">${i + 1}. ${esc(q.pregunta)}</div>
           ${q.opciones.map((opt, j) => `
-            <div class="comp-quiz-option ${j === q.correcta ? 'correct' : ''}">${opt}</div>
+            <div class="comp-quiz-option ${j === q.correcta ? 'correct' : ''}">${esc(opt)}</div>
           `).join('')}
         </div>
       `).join('')}
@@ -427,27 +445,28 @@ function generateCasoHTML(comp: { escenario: string; preguntas: Array<{ pregunta
   return `
     <div class="comp-caso-escenario">
       <div class="comp-caso-label">📋 Escenario</div>
-      <p>${comp.escenario}</p>
+      <p>${esc(comp.escenario)}</p>
     </div>
     ${comp.preguntas.map((q, i) => `
       <div class="comp-quiz-question">
-        <div class="comp-quiz-text">${i + 1}. ${q.pregunta}</div>
+        <div class="comp-quiz-text">${i + 1}. ${esc(q.pregunta)}</div>
         ${q.opciones.map((opt, j) => `
-          <div class="comp-quiz-option ${j === q.correcta ? 'correct' : ''}">${opt}</div>
+          <div class="comp-quiz-option ${j === q.correcta ? 'correct' : ''}">${esc(opt)}</div>
         `).join('')}
-        ${q.feedback ? `<p style="margin-top:12px;color:rgba(255,255,255,0.7);font-style:italic;">💡 ${q.feedback}</p>` : ''}
+        ${q.feedback ? `<p style="margin-top:12px;color:rgba(255,255,255,0.7);font-style:italic;">💡 ${esc(q.feedback)}</p>` : ''}
       </div>
     `).join('')}`;
 }
 
 function generateAudioHTML(comp: { src: string; titulo?: string; loop?: boolean; autoplay?: boolean }): string {
   const attrs = ['controls', comp.loop ? 'loop' : '', comp.autoplay ? 'autoplay' : ''].filter(Boolean).join(' ');
+  const src = safeUrl(comp.src);
   return `
     <div class="comp-audio">
       <span class="comp-audio-icon">🎵</span>
       <div class="comp-audio-body">
-        ${comp.titulo ? `<div class="comp-audio-label">${comp.titulo}</div>` : ''}
-        <audio ${attrs} src="${comp.src}">Tu navegador no soporta audio.</audio>
+        ${comp.titulo ? `<div class="comp-audio-label">${esc(comp.titulo)}</div>` : ''}
+        <audio ${attrs} src="${src}">Tu navegador no soporta audio.</audio>
       </div>
     </div>`;
 }
@@ -484,7 +503,7 @@ export function generateFullHTML(content: ComponentContentWithConfig, title?: st
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title || 'Recurso E-Learning'} - ${brand.nombre}</title>
+  <title>${esc(title || 'Recurso E-Learning')} - ${esc(brand.nombre)}</title>
   <style>${baseStyles}${BASE_STYLES}</style>
 </head>
 <body>

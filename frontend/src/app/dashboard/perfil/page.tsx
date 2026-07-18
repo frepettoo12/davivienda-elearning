@@ -53,8 +53,10 @@ export default function PerfilPage() {
         .finally(() => setLoading(false));
     } else {
       setLoading(true);
+      // Candidatas a trabajar el perfil: toda solicitud cuyo perfil no esté
+      // aprobado todavía (incluye las que ni siquiera tienen perfil).
       listarSolicitudes({})
-        .then((r) => setPendientes(r.solicitudes.filter((s) => !s.malla_id)))
+        .then((r) => setPendientes(r.solicitudes.filter((s) => s.perfil_status !== "aprobado")))
         .catch(() => {})
         .finally(() => setLoading(false));
     }
@@ -81,12 +83,23 @@ export default function PerfilPage() {
       applyPerfil(r.perfil_salida);
     });
 
-  const handleIterar = () =>
+  const handleIterar = () => {
+    // Si el área ya lo está revisando, regenerar lo retira de su revisión:
+    // pedimos confirmación explícita antes de pisarlo.
+    if (
+      perfil?.status === "en_validacion" &&
+      !window.confirm(
+        "El perfil está esperando validación del área. Regenerarlo lo retira de su revisión. ¿Continuar?"
+      )
+    ) {
+      return;
+    }
     run("iterar", async () => {
       const r = await generarPerfil(solicitudId!, feedback.trim());
       applyPerfil(r.perfil_salida);
       setFeedback("");
     });
+  };
 
   const handleGuardarEdicion = () =>
     run("guardar", async () => {
@@ -206,7 +219,23 @@ export default function PerfilPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Perfil de salida</CardTitle>
               {!editando && perfil?.status !== "aprobado" && (
-                <Button variant="outline" size="sm" onClick={() => { setDraft(JSON.parse(JSON.stringify(c))); setEditando(true); }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Editar mientras el área lo revisa lo retira de su revisión.
+                    if (
+                      perfil?.status === "en_validacion" &&
+                      !window.confirm(
+                        "El perfil está esperando validación del área. Regenerarlo lo retira de su revisión. ¿Continuar?"
+                      )
+                    ) {
+                      return;
+                    }
+                    setDraft(JSON.parse(JSON.stringify(c)));
+                    setEditando(true);
+                  }}
+                >
                   ✎ Editar a mano
                 </Button>
               )}
@@ -312,22 +341,38 @@ export default function PerfilPage() {
           ) : (
             <>
               {!editando && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Iterar con IA</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex gap-2">
-                    <Textarea
-                      placeholder='Ej: "agregá un módulo de primeros auxilios y sacá el de normativa internacional"'
-                      value={feedback}
-                      onChange={(e) => setFeedback(e.target.value)}
-                      rows={2}
-                    />
-                    <Button onClick={handleIterar} disabled={working !== null || !feedback.trim()} variant="outline">
-                      {working === "iterar" ? "…" : "Regenerar"}
-                    </Button>
-                  </CardContent>
-                </Card>
+                solicitud?.malla_id ? (
+                  // El backend rechaza regenerar cuando el perfil está aprobado o la
+                  // malla ya se generó (salvo forzar:true, que generarPerfil no expone):
+                  // directamente no ofrecemos regenerar.
+                  <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+                    Perfil aprobado / malla ya generada — no se puede regenerar el perfil.
+                  </div>
+                ) : (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Iterar con IA</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {perfil?.status === "en_validacion" && (
+                        <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+                          El perfil está esperando validación del área. Regenerarlo lo retira de su revisión.
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <Textarea
+                          placeholder='Ej: "agregá un módulo de primeros auxilios y sacá el de normativa internacional"'
+                          value={feedback}
+                          onChange={(e) => setFeedback(e.target.value)}
+                          rows={2}
+                        />
+                        <Button onClick={handleIterar} disabled={working !== null || !feedback.trim()} variant="outline">
+                          {working === "iterar" ? "…" : "Regenerar"}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
               )}
               {!editando && (
                 <Button

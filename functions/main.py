@@ -246,6 +246,14 @@ def obtener_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respon
     if _tenant_mismatch(data, ctx):
         return _error("Malla not found", 404)
     data["id"] = doc.id
+    # Relación inversa malla→solicitud (para el stepper del proceso): una query
+    # puntual por igualdad, sin depender del listado paginado.
+    try:
+        inv = list(get_db().collection("solicitudes").where("malla_id", "==", doc.id).limit(1).stream())
+        if inv:
+            data["solicitud_id"] = inv[0].id
+    except Exception:
+        pass
     return _response(data)
 
 
@@ -955,14 +963,17 @@ def listar_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
     area_filter = req.args.get("area")
     asignado_filter = req.args.get("asignado_a")
 
-    # Query base - traer todos y filtrar en memoria para evitar problemas de índices
-    query = get_db().collection("solicitudes").order_by("created_at", direction=firestore.Query.DESCENDING)
+    # Filtrar por empresa PRIMERO (si no, con >200 solicitudes recientes de otro
+    # tenant, esta empresa vería su lista vacía). Se ordena en memoria para no
+    # depender de un índice compuesto (patrón del repo).
+    query = get_db().collection("solicitudes").where("company_id", "==", ctx.company_id)
 
-    # Límite inicial más alto para filtrar en memoria
-    query = query.limit(200)
-
-    # Ejecutar query
     docs = list(query.stream())
+    docs.sort(
+        key=lambda d: (d.to_dict().get("created_at").timestamp()
+                       if d.to_dict().get("created_at") else 0.0),
+        reverse=True,
+    )
 
     solicitudes = []
     limit = int(req.args.get("limit", 50))
@@ -1001,6 +1012,8 @@ def listar_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
             "malla_id": data.get("malla_id"),
             "created_at": data.get("created_at"),
             "ultimo_comentario": ultimo_comentario,
+            # Estado del perfil (para filtros/badges del proceso, sin traer todo el doc).
+            "perfil_status": (data.get("perfil_salida") or {}).get("status"),
         })
 
         # Aplicar límite después de filtrar
@@ -1244,6 +1257,8 @@ def mis_solicitudes(req: https_fn.Request, ctx: RequestContext) -> https_fn.Resp
             "updated_at": data.get("updated_at"),
             "ultimo_comentario": ultimo_comentario,
             "ultimo_comentario_rol": ultimo_comentario_rol,
+            # Para el badge "Perfil para validar" en Mis Solicitudes.
+            "perfil_status": (data.get("perfil_salida") or {}).get("status"),
         })
 
     return _response({
@@ -1266,7 +1281,12 @@ def listar_usuarios(req: https_fn.Request, ctx: RequestContext) -> https_fn.Resp
     get_db()  # asegura firebase_admin.initialize_app()
 
     # Solo usuarios con dominio de la empresa (no exponer usuarios de otros tenants).
-    dominios = set((ctx.company or {}).get("dominios") or [])
+    dominios = {d.lower() for d in ((ctx.company or {}).get("dominios") or [])}
+    # Fail-closed: sin dominios configurados NO devolvemos todos los usuarios de
+    # Firebase Auth (sería una fuga cross-tenant). Solo el propio usuario.
+    if not dominios:
+        me = {"uid": ctx.uid, "email": ctx.email, "nombre": (ctx.email or "").split("@")[0], "photo_url": None} if ctx.email else None
+        return _response({"usuarios": [me] if me else [], "total": 1 if me else 0})
 
     from firebase_admin import auth as fb_auth
     usuarios = []
@@ -1274,7 +1294,7 @@ def listar_usuarios(req: https_fn.Request, ctx: RequestContext) -> https_fn.Resp
         for u in fb_auth.list_users().iterate_all():
             if not u.email:
                 continue
-            if dominios and u.email.split("@")[-1].lower() not in dominios:
+            if u.email.split("@")[-1].lower() not in dominios:
                 continue
             usuarios.append({
                 "uid": u.uid,
@@ -1448,8 +1468,16 @@ def generar_perfil_endpoint(req: https_fn.Request, ctx: RequestContext) -> https
     if _tenant_mismatch(sol, ctx):
         return _error("Solicitud not found", 404)
 
+    # No regenerar un perfil ya aprobado o cuya malla ya se generó (perdería la
+    # aprobación en silencio). El usuario debe hacerlo explícito si quiere.
+    prev = sol.get("perfil_salida") or {}
+    if prev.get("status") == "aprobado" and not data.get("forzar"):
+        return _error("El perfil ya fue aprobado. Regenerarlo descarta la aprobación (mandá forzar=true).", 409)
+    if sol.get("malla_id") and not data.get("forzar"):
+        return _error("La malla ya fue generada a partir de este perfil (mandá forzar=true para rehacerlo).", 409)
+
     from core.services.perfil_service import generar_perfil
-    actual = (sol.get("perfil_salida") or {}).get("contenido") if feedback else None
+    actual = prev.get("contenido") if feedback else None
     perfil, error = generar_perfil(
         sol.get("curso") or {}, empresa=ctx.company,
         perfil_actual=actual, feedback=feedback,
@@ -1457,7 +1485,6 @@ def generar_perfil_endpoint(req: https_fn.Request, ctx: RequestContext) -> https
     if error:
         return _error(f"Error generando perfil: {error}", 500)
 
-    prev = sol.get("perfil_salida") or {}
     perfil_doc = {
         "contenido": perfil,
         "status": "borrador",
@@ -1532,6 +1559,8 @@ def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respo
         solicitud_id = str(data.get("solicitud_id") or "").strip()
         decision = str(data.get("decision") or "").strip().lower()
         feedback = str(data.get("feedback") or "").strip() or None
+        # Versión que el validador está viendo (para no aprobar una vieja).
+        expected_version = data.get("version")
     except Exception as e:
         return _error(f"Invalid request: {e}")
     if not solicitud_id or decision not in ("aprobar", "cambios"):
@@ -1552,15 +1581,41 @@ def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respo
     if ctx.rol == "solicitante" and not es_dueno:
         return _error("Solicitud not found", 404)
 
-    perfil = sol.get("perfil_salida") or {}
-    if not perfil.get("contenido"):
+    if not (sol.get("perfil_salida") or {}).get("contenido"):
         return _error("La solicitud no tiene perfil para validar", 400)
 
-    perfil["status"] = "aprobado" if decision == "aprobar" else "con_cambios"
-    perfil["validacion_feedback"] = feedback
-    perfil["validado_por"] = ctx.email or None
-    perfil["validado_at"] = datetime.utcnow().isoformat()
-    ref.update({"perfil_salida": perfil, "updated_at": SERVER_TIMESTAMP})
+    # Escritura transaccional con chequeo de versión: si Learning regeneró
+    # (version++) entre que el validador cargó la pantalla y decidió, se rechaza
+    # para no aprobar/pisar una versión que ya no existe.
+    db = get_db()
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def _apply(tx):
+        cur = ref.get(transaction=tx).to_dict() or {}
+        perfil = cur.get("perfil_salida") or {}
+        if not perfil.get("contenido"):
+            raise ValueError("no-perfil")
+        if perfil.get("status") not in ("en_validacion", "con_cambios", "aprobado"):
+            raise ValueError("estado-no-validable")
+        if expected_version is not None and int(perfil.get("version") or 0) != int(expected_version):
+            raise ValueError("version-cambio")
+        perfil["status"] = "aprobado" if decision == "aprobar" else "con_cambios"
+        perfil["validacion_feedback"] = feedback
+        perfil["validado_por"] = ctx.email or None
+        perfil["validado_at"] = datetime.utcnow().isoformat()
+        tx.update(ref, {"perfil_salida": perfil, "updated_at": SERVER_TIMESTAMP})
+
+    try:
+        _apply(transaction)
+    except ValueError as ve:
+        if str(ve) == "version-cambio":
+            return _error("El perfil cambió mientras lo revisabas. Recargá para ver la versión nueva.", 409)
+        if str(ve) == "estado-no-validable":
+            return _error("El perfil no está en un estado validable", 409)
+        return _error("La solicitud no tiene perfil para validar", 400)
+
+    perfil = (ref.get().to_dict() or {}).get("perfil_salida") or {}
 
     curso = (sol.get("curso") or {}).get("nombre", "el curso")
     # Notificar al equipo de la empresa DUEÑA de la solicitud (el validador
@@ -1889,7 +1944,19 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
             doms = _clean_list(data.get("dominios"))
             if not doms:
                 return _error("La empresa necesita al menos un dominio")
-            update["dominios"] = [s.lower() for s in doms]
+            doms = [s.lower() for s in doms]
+            # Unicidad: ningún dominio puede pertenecer ya a OTRA empresa
+            # (si no, resolve_company_by_domain enrutaría logins al azar).
+            for other in get_db().collection("companies").stream():
+                if other.id == ctx.company_id:
+                    continue
+                ajenos = {d.lower() for d in (other.to_dict() or {}).get("dominios") or []}
+                choque = ajenos & set(doms)
+                if choque:
+                    return _error(
+                        f"El dominio {', '.join(sorted(choque))} ya pertenece a la empresa '{other.id}'", 409
+                    )
+            update["dominios"] = doms
         if "learning_domains" in data:
             update["learning_domains"] = [s.lower() for s in (_clean_list(data.get("learning_domains")) or [])]
         if "activo" in data:
@@ -1958,10 +2025,11 @@ def lms_publicar(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respons
     if not scorm_url:
         return _error("La malla no tiene paquete SCORM generado — empaquetá primero", 400)
 
-    import requests as _rq
+    from core.security import safe_get, UnsafeURLError
     try:
-        zresp = _rq.get(scorm_url, timeout=120)
-        zresp.raise_for_status()
+        zip_bytes = safe_get(scorm_url, timeout=120, max_bytes=200 * 1024 * 1024)
+    except UnsafeURLError as e:
+        return _error(f"URL del SCORM no permitida: {e}", 400)
     except Exception as e:
         return _error(f"No se pudo descargar el SCORM: {e}", 500)
 
@@ -1972,7 +2040,7 @@ def lms_publicar(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respons
     try:
         result = moodle.publicar(
             li["base_url"], li["token"], curso_nombre, malla_id,
-            zresp.content, categoria_id=int(li.get("categoria_id") or 1),
+            zip_bytes, categoria_id=int(li.get("categoria_id") or 1),
         )
     except moodle.MoodleError as e:
         return _error(str(e), 502)
@@ -1996,11 +2064,19 @@ def lms_publicar(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respons
 
 # ============== LOGO DE EMPRESA ==============
 
+# SVG excluido a propósito: puede contener <script> → XSS almacenado al
+# renderizar el logo inline. Solo formatos raster.
 _LOGO_MIMES = {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/webp": "webp",
-    "image/svg+xml": "svg",
+}
+
+# Magic bytes por formato (validar que el binario coincida con el MIME declarado).
+_LOGO_MAGIC = {
+    "image/png": b"\x89PNG\r\n\x1a\n",
+    "image/jpeg": b"\xff\xd8\xff",
+    "image/webp": b"RIFF",  # "RIFF"...."WEBP"
 }
 
 
@@ -2023,18 +2099,23 @@ def subir_logo(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
 
     m = _re.match(r"^data:(image/[a-zA-Z+.-]+);base64,(.+)$", data_url, _re.S)
     if not m or m.group(1) not in _LOGO_MIMES:
-        return _error("Formato inválido: subí un PNG, JPG, WEBP o SVG")
+        return _error("Formato inválido: subí un PNG, JPG o WEBP (SVG no permitido)")
+    mime = m.group(1)
     try:
         raw = base64.b64decode(m.group(2))
     except Exception:
         return _error("Base64 inválido")
     if len(raw) > 2 * 1024 * 1024:
         return _error("El logo no puede superar 2 MB")
+    # El binario debe empezar con los magic bytes del formato declarado (evita
+    # subir HTML/JS con content-type de imagen).
+    if not raw.startswith(_LOGO_MAGIC[mime]):
+        return _error("El archivo no es una imagen válida del formato declarado")
 
-    ext = _LOGO_MIMES[m.group(1)]
+    ext = _LOGO_MIMES[mime]
     blob_path = f"{_storage_prefix(ctx)}branding/logo_{uuid.uuid4().hex[:8]}.{ext}"
     blob = get_bucket().blob(blob_path)
-    blob.upload_from_string(raw, content_type=m.group(1))
+    blob.upload_from_string(raw, content_type=mime)
     blob.make_public()
 
     get_db().collection("companies").document(ctx.company_id).set(

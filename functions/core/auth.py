@@ -142,13 +142,12 @@ def require_auth(roles: set[str] | None = None, allow_unassigned: bool = False):
                 )
                 ctx = _fallback_context()
 
+            # El chequeo de ROL corta SIEMPRE (aunque el modo suave sea permisivo
+            # con la ausencia de token): un solicitante autenticado nunca debe
+            # ejecutar endpoints de learning. El fallback context es learning,
+            # así que esto solo bloquea a usuarios reales con rol insuficiente.
             if roles and ctx.rol not in roles:
-                if _enforced():
-                    return _json_error("Forbidden", 403)
-                logger.warning(
-                    "AUTH soft-mode: rol '%s' insuficiente para %s (requiere %s)",
-                    ctx.rol, req.path, roles,
-                )
+                return _json_error("Forbidden", 403)
 
             return fn(req, ctx)
 

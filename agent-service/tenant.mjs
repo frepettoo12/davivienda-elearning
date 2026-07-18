@@ -33,7 +33,11 @@ export const DEFAULT_COMPANY = {
   },
 };
 
-const ENFORCE = /^(1|true|yes)$/i.test(process.env.AUTH_ENFORCE || "");
+// Seguro por default: si AUTH_ENFORCE no está seteado, en producción se exige
+// token (opt-out explícito con AUTH_ENFORCE=false); en local sigue permisivo.
+const ENFORCE = process.env.AUTH_ENFORCE
+  ? /^(1|true|yes)$/i.test(process.env.AUTH_ENFORCE)
+  : process.env.NODE_ENV === "production";
 
 let _initTried = false;
 function ensureApp() {

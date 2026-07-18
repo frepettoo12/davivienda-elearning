@@ -437,7 +437,7 @@ export default function NuevaSolicitudPage() {
                     min={5}
                     max={120}
                     value={formData.duracionMin}
-                    onChange={(e) => setFormData({ ...formData, duracionMin: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, duracionMin: parseInt(e.target.value) || 0 })}
                   />
                 </div>
                 <div>

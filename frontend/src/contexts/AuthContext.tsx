@@ -116,6 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setRole(null);
     localStorage.removeItem("userRole");
+    // Limpiar todo el estado del tenant: si no, el próximo usuario en este
+    // browser ve un flash de la marca/empresa anterior y arrastra X-Company-Id.
+    localStorage.removeItem("actingCompany");
+    localStorage.removeItem("companyBrand");
   };
 
   return (

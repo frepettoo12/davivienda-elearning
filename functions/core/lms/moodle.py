@@ -31,9 +31,19 @@ class MoodleError(Exception):
     pass
 
 
+def _safe_base(base_url: str) -> str:
+    """Valida la URL del LMS contra SSRF (no IPs internas). Lanza MoodleError."""
+    from core.security import assert_safe_url, UnsafeURLError
+    try:
+        assert_safe_url(base_url)
+    except UnsafeURLError as e:
+        raise MoodleError(f"URL del LMS no permitida: {e}")
+    return base_url.rstrip("/")
+
+
 def _rest(base_url: str, token: str, fn: str, params: dict | None = None) -> dict | list:
     """Llama a un web service REST de Moodle y normaliza los errores."""
-    url = f"{base_url.rstrip('/')}/webservice/rest/server.php"
+    url = f"{_safe_base(base_url)}/webservice/rest/server.php"
     data = {
         "wstoken": token,
         "wsfunction": fn,
@@ -71,6 +81,9 @@ def probar_conexion(base_url: str, token: str) -> dict:
 
 def _slug_shortname(nombre: str, malla_id: str) -> str:
     base = re.sub(r"[^a-zA-Z0-9]+", "-", nombre.lower()).strip("-")[:30]
+    if not base:  # nombre no-ASCII (CJK/emoji) → base vacío colisionaría
+        import hashlib
+        base = "curso-" + hashlib.sha1(nombre.encode("utf-8")).hexdigest()[:8]
     return f"{base}-{malla_id[:6]}"
 
 
@@ -102,19 +115,22 @@ def publicar(base_url: str, token: str, curso_nombre: str, malla_id: str,
         creado = True
 
     # Subir el zip al área de borradores del usuario del token.
-    upload_url = f"{base_url.rstrip('/')}/webservice/upload.php"
+    upload_url = f"{_safe_base(base_url)}/webservice/upload.php"
     try:
         resp = requests.post(
             upload_url,
             data={"token": token},
             files={"file_1": (f"{shortname}.zip", scorm_zip, "application/zip")},
-            timeout=120,
+            timeout=180,
         )
         up = resp.json()
     except (requests.RequestException, ValueError) as e:
         raise MoodleError(f"El curso se creó pero falló la subida del zip: {e}")
-    if isinstance(up, dict) and up.get("exception"):
-        raise MoodleError(f"El curso se creó pero falló la subida: {up.get('message')}")
+    # upload.php reporta errores como {'exception':...} o como {'error':...}.
+    if isinstance(up, dict) and (up.get("exception") or up.get("error")):
+        raise MoodleError(f"El curso se creó pero falló la subida: {up.get('message') or up.get('error')}")
+    if not (isinstance(up, list) and up):
+        raise MoodleError("El curso se creó pero la subida del zip no devolvió el archivo esperado")
 
     archivo = up[0] if isinstance(up, list) and up else {}
     curso_url = f"{base_url.rstrip('/')}/course/view.php?id={curso_id}"

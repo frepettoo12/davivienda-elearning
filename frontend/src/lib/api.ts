@@ -79,6 +79,22 @@ export async function authHeaders(): Promise<Record<string, string>> {
   };
 }
 
+// Extrae un mensaje de error legible de una respuesta fallida: el backend
+// devuelve {"error": "..."} — mostramos el texto, no el JSON crudo.
+export async function errorDe(res: Response, fallback = "Ocurrió un error"): Promise<string> {
+  try {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      return (j?.error || j?.message || t || fallback).toString();
+    } catch {
+      return t || fallback;
+    }
+  } catch {
+    return fallback;
+  }
+}
+
 // ID token para URLs que no pueden mandar headers (iframes de preview del
 // agent-service: ?auth=). Vacío si no hay usuario.
 export async function currentIdToken(): Promise<string> {
@@ -130,7 +146,7 @@ export async function guardarScormShell(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, shell_html: shellHtml, malla_id: mallaId }),
   });
-  if (!res.ok) throw new Error(`Error guardando shell: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorDe(res, 'Error guardando shell'));
 }
 
 export async function empaquetarScorm(payload: {
@@ -146,8 +162,7 @@ export async function empaquetarScorm(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Error empaquetando SCORM: ${t}`);
+    throw new Error(await errorDe(res, 'Error empaquetando SCORM'));
   }
   return res.json();
 }
@@ -227,7 +242,7 @@ export async function generarPerfil(
     method: "POST",
     body: JSON.stringify({ solicitud_id: solicitudId, feedback }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorDe(res));
   return res.json();
 }
 
@@ -239,20 +254,23 @@ export async function guardarPerfil(
     method: "PUT",
     body: JSON.stringify({ solicitud_id: solicitudId, ...opts }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorDe(res));
   return res.json();
 }
 
 export async function validarPerfil(
   solicitudId: string,
   decision: "aprobar" | "cambios",
-  feedback?: string
+  feedback?: string,
+  // Versión del perfil que el validador está viendo: el backend rechaza (409)
+  // si Learning regeneró en el medio, para no aprobar una versión vieja.
+  version?: number
 ): Promise<{ ok: boolean; status: PerfilStatus }> {
   const res = await apiFetch(`${API_BASE}/validar_perfil`, {
     method: "POST",
-    body: JSON.stringify({ solicitud_id: solicitudId, decision, feedback }),
+    body: JSON.stringify({ solicitud_id: solicitudId, decision, feedback, version }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorDe(res));
   return res.json();
 }
 
@@ -295,8 +313,12 @@ export interface SolicitudListItem {
   prioridad: "alta" | "media" | "baja";
   asignado_a?: string;
   created_at?: string;
+  updated_at?: string;
   malla_id?: string;
   ultimo_comentario?: string;
+  ultimo_comentario_rol?: string;
+  // Estado del perfil de salida (para badges/filtros sin traer el doc completo).
+  perfil_status?: PerfilStatus | null;
 }
 
 export async function listarSolicitudes(params?: {
@@ -386,8 +408,7 @@ export async function composeSplitVideo(
     body: JSON.stringify({ avatarUrl, contentHtml, id }),
   });
   if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Error componiendo video: ${t}`);
+    throw new Error(await errorDe(res, 'Error componiendo video'));
   }
   const d = await res.json();
   return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
@@ -405,7 +426,7 @@ export async function composeSlidesVideo(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ audioUrl, contentHtml, slideCount, id }),
   });
-  if (!res.ok) throw new Error(`Error componiendo video: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorDe(res, 'Error componiendo video'));
   const d = await res.json();
   // Storage devuelve URL absoluta; el fallback local es relativo al agent-service.
   return { url: String(d.url).startsWith("http") ? d.url : `${AGENT_URL}${d.url}` };
@@ -439,7 +460,7 @@ export async function probarLms(creds?: {
     method: "POST",
     body: JSON.stringify(creds || {}),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorDe(res));
   return res.json();
 }
 
@@ -448,7 +469,7 @@ export async function publicarLms(mallaId: string): Promise<LmsPublicarResult> {
     method: "POST",
     body: JSON.stringify({ malla_id: mallaId }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorDe(res));
   return res.json();
 }
 
@@ -479,7 +500,7 @@ export async function subirLogo(dataUrl: string): Promise<string> {
     body: JSON.stringify({ data_url: dataUrl }),
   });
   if (!res.ok) {
-    throw new Error(`Error subiendo logo: ${await res.text()}`);
+    throw new Error(await errorDe(res, 'Error subiendo logo'));
   }
   const d = await res.json();
   return d.logo_url as string;
@@ -494,7 +515,7 @@ export async function actualizarEmpresa(
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    throw new Error(`Error guardando configuración: ${await res.text()}`);
+    throw new Error(await errorDe(res, 'Error guardando configuración'));
   }
   return res.json();
 }
@@ -555,7 +576,7 @@ export async function guardarTemplate(
     method: "PUT",
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Error guardando template: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorDe(res, 'Error guardando template'));
   return res.json();
 }
 
@@ -564,7 +585,7 @@ export async function sugerirTemplate(curso: Curso): Promise<TemplateSugerencia>
     method: "POST",
     body: JSON.stringify({ curso }),
   });
-  if (!res.ok) throw new Error(`Error sugiriendo template: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorDe(res, 'Error sugiriendo template'));
   return res.json();
 }
 
@@ -591,6 +612,7 @@ export interface Malla {
   solicitud?: { curso?: { nombre?: string }; solicitante?: { nombre?: string; area?: string } };
   scorm_shell_html?: string;
   // Último paquete SCORM generado (lo persiste empaquetar_scorm).
+  solicitud_id?: string;
   scorm_url?: string;
   scorm_size?: number;
   scorm_updated_at?: string;
@@ -628,8 +650,7 @@ export async function crearMalla(data: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error creating malla: ${error}`);
+    throw new Error(await errorDe(res, 'Error creando malla'));
   }
   return res.json();
 }
@@ -650,8 +671,7 @@ export async function iterarMalla(
     body: JSON.stringify({ feedback }),
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error iterating malla: ${error}`);
+    throw new Error(await errorDe(res, 'Error iterando malla'));
   }
   return res.json();
 }
@@ -666,8 +686,7 @@ export async function guardarMalla(
     body: JSON.stringify({ malla }),
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error guardando malla: ${error}`);
+    throw new Error(await errorDe(res, 'Error guardando malla'));
   }
   return res.json();
 }
@@ -684,7 +703,7 @@ export async function guardarGuion(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, contenido }),
   });
-  if (!res.ok) throw new Error(`Error guardando guion: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorDe(res, 'Error guardando guion'));
 }
 
 // Guiones types
@@ -717,8 +736,7 @@ export async function generarGuiones(
     headers: { "Content-Type": "application/json" },
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error generating guiones: ${error}`);
+    throw new Error(await errorDe(res, 'Error generando guiones'));
   }
   return res.json();
 }
@@ -747,8 +765,7 @@ export async function generarAudio(
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, texto }),
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error generating audio: ${error}`);
+    throw new Error(await errorDe(res, 'Error generando audio'));
   }
   return res.json();
 }
@@ -764,8 +781,7 @@ export async function generarVideo(
     body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, audio_url: audioUrl }),
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error generating video: ${error}`);
+    throw new Error(await errorDe(res, 'Error generando video'));
   }
   return res.json();
 }
@@ -774,8 +790,7 @@ export async function obtenerJob(jobId: string): Promise<ContentJob> {
   // El endpoint espera ?id= (no job_id).
   const res = await apiFetch(`${API_URLS.obtener_job}?id=${jobId}`);
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Error fetching job: ${error}`);
+    throw new Error(await errorDe(res, 'Error consultando job'));
   }
   const data = await res.json();
   // El backend guarda la URL como result_url; el frontend usa output_url.

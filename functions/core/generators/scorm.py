@@ -45,11 +45,17 @@ _COURSE_RE = _re.compile(
 
 
 def inject_course(shell_html: str, resources_js: str, mastery: int, titulo: str) -> str:
-    """Reemplaza el bloque COURSE del shell con la data real del curso."""
+    """Reemplaza el bloque COURSE del shell con la data real del curso. Si el
+    shell perdió el marcador (agente lo reescribió), inyecta un <script> con la
+    data antes de </body> — nunca deja el paquete con el contenido de muestra."""
     block = f"/* === DAVIVIENDA:COURSE (no editar) === */{_course_block(resources_js, mastery, titulo)}/* === END:COURSE === */"
     if _COURSE_RE.search(shell_html):
         return _COURSE_RE.sub(lambda _m: block, shell_html)
-    return shell_html
+    # Fallback: sin marcador, inyectar el bloque como <script> propio.
+    inject = f"<script>{_course_block(resources_js, mastery, titulo)}</script>"
+    if "</body>" in shell_html:
+        return shell_html.replace("</body>", inject + "\n</body>", 1)
+    return shell_html + inject
 
 
 # ── SCORM 1.2 API wrapper (genérico, compatible Territorium) ──────────────────
@@ -171,9 +177,14 @@ PLAYER_JS = r"""
   }
 
   window.addEventListener('message', (e) => {
+    // Solo aceptar el score si viene del iframe del recurso actual (evita que un
+    // recurso ajeno o la consola del alumno inflen la nota).
+    var frame = document.getElementById('contentFrame');
+    if (!frame || e.source !== frame.contentWindow) return;
     const d = e.data || {};
-    if (d.type === 'scorm-quiz-score' && typeof d.total === 'number') {
-      quizScores[current] = { score: d.score || 0, total: d.total };
+    if (d.type === 'scorm-quiz-score' && typeof d.total === 'number' && d.total > 0) {
+      var sc = Math.max(0, Math.min(Number(d.score) || 0, d.total));
+      quizScores[current] = { score: sc, total: d.total };
       computeAndReport(false);
     }
   });
@@ -233,7 +244,7 @@ _PLAYER_LOGIC = r"""
     else if (visited.size >= RESOURCES.length) SCORM.setStatus('completed');
     SCORM.commit(); if (finish) SCORM.finish();
   }
-  window.addEventListener('message', (e) => { const d = e.data || {}; if (d.type === 'scorm-quiz-score' && typeof d.total === 'number') { quizScores[current] = { score: d.score || 0, total: d.total }; report(false); } });
+  window.addEventListener('message', (e) => { var f = document.getElementById('contentFrame'); if (!f || e.source !== f.contentWindow) return; const d = e.data || {}; if (d.type === 'scorm-quiz-score' && typeof d.total === 'number' && d.total > 0) { var sc = Math.max(0, Math.min(Number(d.score) || 0, d.total)); quizScores[current] = { score: sc, total: d.total }; report(false); } });
   if (btnPrev) btnPrev.addEventListener('click', () => show(current - 1));
   if (btnNext) btnNext.addEventListener('click', () => show(current + 1));
   if (btnFinish) btnFinish.addEventListener('click', () => { report(true); if (crumb) crumb.textContent = '✓ Curso finalizado'; });
@@ -460,19 +471,28 @@ def _ext_from(url: str, content_type: str | None) -> str:
 def _download_assets(html: str, asset_cache: dict[str, str], blobs: dict[str, bytes]) -> str:
     """Descarga las URLs del HTML a assets/ y reescribe a rutas relativas (../assets/...).
     asset_cache: url -> nombre de archivo (dedup global). blobs: nombre -> bytes."""
+    from core.security import safe_get, UnsafeURLError
+
+    # Cota total de assets por paquete (evita OOM de la function).
+    _MAX_TOTAL = 60 * 1024 * 1024
+    _state = {"total": 0}
+
     def repl(m: re.Match) -> str:
         attr, url = m.group(1), m.group(2)
         local = asset_cache.get(url)
         if not local:
+            if _state["total"] >= _MAX_TOTAL:
+                return m.group(0)
             try:
-                r = requests.get(url, timeout=60)
-                r.raise_for_status()
-                name = f"asset_{len(asset_cache) + 1}_{_slug(urlparse(url).path.split('/')[-1], 'a')}.{_ext_from(url, r.headers.get('content-type'))}"
+                # Guard anti-SSRF + corte por tamaño; no seguimos a IPs internas.
+                content = safe_get(url, timeout=30, max_bytes=15 * 1024 * 1024)
+                _state["total"] += len(content)
+                name = f"asset_{len(asset_cache) + 1}_{_slug(urlparse(url).path.split('/')[-1], 'a')}.{_ext_from(url, None)}"
                 asset_cache[url] = name
-                blobs[name] = r.content
+                blobs[name] = content
                 local = name
-            except Exception:
-                return m.group(0)  # si falla la descarga, dejamos la URL original
+            except (UnsafeURLError, Exception):
+                return m.group(0)  # si falla/es insegura, dejamos la URL original
         # Las páginas de recurso viven en resources/, así que el asset queda en ../assets/
         return f'{attr}="../assets/{local}"'
 

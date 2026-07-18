@@ -12,7 +12,20 @@ import { promisify } from "node:util";
 import { writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { Storage } from "@google-cloud/storage";
+
+// Guard anti-SSRF: solo http(s) y hosts que NO resuelvan a IPs internas/privadas.
+async function assertSafeUrl(url) {
+  let u; try { u = new URL(url); } catch { throw new Error("URL inválida"); }
+  if (!/^https?:$/.test(u.protocol)) throw new Error("Esquema no permitido");
+  const { address } = await dns.lookup(u.hostname);
+  if (net.isIP(address) && (address.startsWith("10.") || address.startsWith("127.") || address.startsWith("169.254.") || address.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[01])\./.test(address) || address === "::1" || address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe80"))) throw new Error("Host resuelve a IP interna");
+  return url;
+}
+
+const FETCH_TIMEOUT_MS = 120000;
 
 const execp = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,7 +78,8 @@ export async function composeSplit({ avatarUrl, contentHtml, id, companyId }) {
 
   try {
     // 1) Descargar avatar
-    const resp = await fetch(avatarUrl);
+    await assertSafeUrl(avatarUrl);
+    const resp = await fetch(avatarUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error(`No se pudo descargar el avatar (HTTP ${resp.status})`);
     writeFileSync(avatarPath, Buffer.from(await resp.arrayBuffer()));
 
@@ -116,7 +130,8 @@ export async function composeSlides({ audioUrl, contentHtml, slideCount = 1, id,
 
   try {
     // 1) Audio + duración
-    const resp = await fetch(audioUrl);
+    await assertSafeUrl(audioUrl);
+    const resp = await fetch(audioUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error(`No se pudo descargar el audio (HTTP ${resp.status})`);
     writeFileSync(audioPath, Buffer.from(await resp.arrayBuffer()));
     const { stdout: durOut } = await execp(

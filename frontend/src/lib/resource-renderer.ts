@@ -6,6 +6,12 @@
 import { Guion } from "./api";
 import { Brand, DEFAULT_BRAND, safeFont } from "./brand";
 
+// Escapa texto proveniente del guión/contenido (GPT o ediciones de usuario)
+// para prevenir XSS almacenado en el HTML generado.
+function esc(s: unknown): string {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // Los colores de marca entran como CSS vars (--brand-primary/--brand-secondary):
 // un solo punto define los valores y el resto de los estilos los referencia.
 const baseStyles = (b: Brand) => {
@@ -89,7 +95,7 @@ export function generateInfografiaHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(c.titulo || guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .grid {
@@ -134,7 +140,7 @@ export function generateInfografiaHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${c.titulo || guion.bloque}</div>
+        <div class="title">${esc(c.titulo || guion.bloque)}</div>
         <div class="subtitle">Infografía Interactiva</div>
       </div>
     </div>
@@ -142,16 +148,16 @@ export function generateInfografiaHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
     ${c.dato_destacado ? `
     <div class="highlight-box">
       <span style="font-size: 24px;">💡</span>
-      <span>${c.dato_destacado}</span>
+      <span>${esc(c.dato_destacado)}</span>
     </div>
     ` : ''}
 
     <div class="grid">
       ${secciones.map((sec, i) => `
         <div class="card" onclick="this.classList.toggle('expanded')">
-          <div class="card-icon">${sec.icono}</div>
-          <div class="card-title">${sec.titulo}</div>
-          <div class="card-desc">${sec.descripcion}</div>
+          <div class="card-icon">${esc(sec.icono)}</div>
+          <div class="card-title">${esc(sec.titulo)}</div>
+          <div class="card-desc">${esc(sec.descripcion)}</div>
         </div>
       `).join('')}
     </div>
@@ -176,7 +182,7 @@ export function generateComparadorHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(c.titulo || guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .table-container {
@@ -220,7 +226,7 @@ export function generateComparadorHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${c.titulo || guion.bloque}</div>
+        <div class="title">${esc(c.titulo || guion.bloque)}</div>
         <div class="subtitle">Tabla Comparativa</div>
       </div>
     </div>
@@ -230,14 +236,14 @@ export function generateComparadorHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
         <thead>
           <tr>
             <th>Aspecto</th>
-            ${columnas.map(col => `<th>${col}</th>`).join('')}
+            ${columnas.map(col => `<th>${esc(col)}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${filas.map(fila => `
             <tr>
-              <td>${fila.aspecto}</td>
-              ${fila.valores.map(val => `<td>${val}</td>`).join('')}
+              <td>${esc(fila.aspecto)}</td>
+              ${fila.valores.map(val => `<td>${esc(val)}</td>`).join('')}
             </tr>
           `).join('')}
         </tbody>
@@ -265,7 +271,7 @@ export function generateInteractivoHTML(guion: Guion, brand: Brand = DEFAULT_BRA
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${c.titulo || guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(c.titulo || guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .instruction {
@@ -327,22 +333,22 @@ export function generateInteractivoHTML(guion: Guion, brand: Brand = DEFAULT_BRA
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${c.titulo || guion.bloque}</div>
+        <div class="title">${esc(c.titulo || guion.bloque)}</div>
         <div class="subtitle">Contenido Interactivo</div>
       </div>
     </div>
 
-    ${c.instruccion ? `<p class="instruction">👆 ${c.instruccion}</p>` : '<p class="instruction">👆 Haz clic en cada sección para explorar</p>'}
+    ${c.instruccion ? `<p class="instruction">👆 ${esc(c.instruccion)}</p>` : '<p class="instruction">👆 Haz clic en cada sección para explorar</p>'}
 
     <div class="accordion">
       ${elementos.map((elem, i) => `
         <div class="accordion-item" onclick="toggleAccordion(this)">
           <div class="accordion-header">
-            <span>${elem.etiqueta}</span>
+            <span>${esc(elem.etiqueta)}</span>
             <span class="accordion-arrow">▼</span>
           </div>
           <div class="accordion-content">
-            <div class="accordion-content-inner">${elem.contenido_oculto}</div>
+            <div class="accordion-content-inner">${esc(elem.contenido_oculto)}</div>
           </div>
         </div>
       `).join('')}
@@ -378,7 +384,7 @@ export function generateFlashcardsHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .instruction {
@@ -446,7 +452,7 @@ export function generateFlashcardsHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${guion.bloque}</div>
+        <div class="title">${esc(guion.bloque)}</div>
         <div class="subtitle">Flashcards</div>
       </div>
     </div>
@@ -459,11 +465,11 @@ export function generateFlashcardsHTML(guion: Guion, brand: Brand = DEFAULT_BRAN
           <div class="flashcard-inner">
             <div class="flashcard-front">
               <span class="card-number">${i + 1}/${items.length}</span>
-              ${item.frente}
+              ${esc(item.frente)}
             </div>
             <div class="flashcard-back">
               <span class="card-number">${i + 1}/${items.length}</span>
-              ${item.reverso}
+              ${esc(item.reverso)}
             </div>
           </div>
         </div>
@@ -489,7 +495,7 @@ export function generateQuizHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): st
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .quiz-container { max-width: 800px; margin: 0 auto; }
@@ -578,7 +584,7 @@ export function generateQuizHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): st
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${guion.bloque}</div>
+        <div class="title">${esc(guion.bloque)}</div>
         <div class="subtitle">Evaluación - ${preguntas.length} preguntas</div>
       </div>
     </div>
@@ -590,16 +596,16 @@ export function generateQuizHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): st
     ${preguntas.map((q, i) => `
       <div class="question" id="q${i}" ${i > 0 ? 'style="display:none"' : ''}>
         <div class="question-number">Pregunta ${i + 1} de ${preguntas.length}</div>
-        <div class="question-text">${q.pregunta}</div>
+        <div class="question-text">${esc(q.pregunta)}</div>
         <div class="options">
           ${q.opciones.map((opt, j) => `
-            <div class="option" data-q="${i}" data-opt="${j}" data-correct="${q.correcta}" onclick="selectOption(this)">
+            <div class="option" data-q="${i}" data-opt="${j}" data-correct="${Number(q.correcta)}" onclick="selectOption(this)">
               <span class="option-letter">${String.fromCharCode(65 + j)}</span>
-              <span>${opt}</span>
+              <span>${esc(opt)}</span>
             </div>
           `).join('')}
         </div>
-        <button class="check-btn" id="btn${i}" onclick="checkAnswer(${i}, ${q.correcta})" disabled>Verificar</button>
+        <button class="check-btn" id="btn${i}" onclick="checkAnswer(${i}, ${Number(q.correcta)})" disabled>Verificar</button>
         <div class="result" id="result${i}"></div>
       </div>
     `).join('')}
@@ -678,7 +684,7 @@ export function generateCasoPracticoHTML(guion: Guion, brand: Brand = DEFAULT_BR
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${guion.bloque} - ${brand.nombreDisplay}</title>
+  <title>${esc(guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
   <style>
     ${baseStyles(brand)}
     .case-container { max-width: 900px; margin: 0 auto; }
@@ -749,7 +755,7 @@ export function generateCasoPracticoHTML(guion: Guion, brand: Brand = DEFAULT_BR
     <div class="header">
       ${logoHtml(brand)}
       <div>
-        <div class="title">${guion.bloque}</div>
+        <div class="title">${esc(guion.bloque)}</div>
         <div class="subtitle">Caso Práctico</div>
       </div>
     </div>
@@ -757,19 +763,19 @@ export function generateCasoPracticoHTML(guion: Guion, brand: Brand = DEFAULT_BR
     ${c.escenario ? `
     <div class="scenario">
       <div class="scenario-label">📋 Escenario</div>
-      <p>${c.escenario}</p>
+      <p>${esc(c.escenario)}</p>
     </div>
     ` : ''}
 
     ${preguntas.map((q, i) => `
       <div class="question ${i === 0 ? 'active' : ''}" id="q${i}">
-        <div class="question-text">${i + 1}. ${q.pregunta}</div>
+        <div class="question-text">${i + 1}. ${esc(q.pregunta)}</div>
         <div class="options">
           ${q.opciones.map((opt, j) => `
-            <div class="option" onclick="answer(${i}, ${j}, ${q.correcta})">${opt}</div>
+            <div class="option" onclick="answer(${i}, ${j}, ${Number(q.correcta)})">${esc(opt)}</div>
           `).join('')}
         </div>
-        <div class="feedback" id="feedback${i}">💡 ${q.feedback || 'Continúa al siguiente paso.'}</div>
+        <div class="feedback" id="feedback${i}">💡 ${esc(q.feedback || 'Continúa al siguiente paso.')}</div>
       </div>
     `).join('')}
 
@@ -824,7 +830,7 @@ export function generateResourceHTML(guion: Guion, tipo: string, brand: Brand = 
     case 'Caso práctico':
       return generateCasoPracticoHTML(guion, brand);
     default:
-      return `<html><body><h1>Tipo no soportado: ${tipo}</h1><pre>${JSON.stringify(guion.contenido, null, 2)}</pre></body></html>`;
+      return `<html><body><h1>Tipo no soportado: ${esc(tipo)}</h1><pre>${esc(JSON.stringify(guion.contenido, null, 2))}</pre></body></html>`;
   }
 }
 
