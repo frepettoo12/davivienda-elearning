@@ -18,7 +18,10 @@ import {
   obtenerSolicitud,
   Malla,
   Solicitud,
+  STATUS_CONFIG,
+  PRIORIDAD_CONFIG,
 } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 
 export type ProcesoStep =
   | "solicitud"
@@ -129,8 +132,35 @@ export function ProcessStepper({ current, solicitudId, mallaId }: Props) {
   ];
 
   return (
-    <div className="mb-6 overflow-x-auto">
-      <div className="flex min-w-max items-center rounded-xl border bg-white px-4 py-3">
+    <div className="mb-6 overflow-hidden rounded-xl border border-l-4 border-l-brand bg-white">
+      {/* La solicitud es la madre de todo: siempre visible en qué curso estás */}
+      {sol && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-gray-50/60 px-4 py-2.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            Trabajando en
+          </span>
+          <button
+            className="truncate text-sm font-semibold text-gray-900 hover:text-brand hover:underline"
+            onClick={() => router.push(`/dashboard/solicitudes/${sol.id}`)}
+            title="Ver la solicitud"
+          >
+            {sol.curso?.nombre}
+          </button>
+          <span className="text-xs text-gray-500">
+            {sol.solicitante?.nombre} · {sol.solicitante?.area}
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            <Badge className={PRIORIDAD_CONFIG[sol.prioridad]?.color}>
+              {PRIORIDAD_CONFIG[sol.prioridad]?.label}
+            </Badge>
+            <Badge className={STATUS_CONFIG[sol.status]?.color}>
+              {STATUS_CONFIG[sol.status]?.emoji} {STATUS_CONFIG[sol.status]?.label}
+            </Badge>
+          </span>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+      <div className="flex min-w-max items-center px-4 py-3">
         {steps.map((step, i) => {
           const isCurrent = step.key === current;
           const clickable = Boolean(step.href) && !isCurrent;
@@ -171,6 +201,7 @@ export function ProcessStepper({ current, solicitudId, mallaId }: Props) {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

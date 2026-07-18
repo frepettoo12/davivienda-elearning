@@ -151,7 +151,7 @@ export default function PerfilPage() {
   const statusCfg = perfil ? PERFIL_STATUS_CONFIG[perfil.status] : null;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="space-y-6 p-6">
       <ProcessStepper current="perfil" solicitudId={solicitudId} />
       <div>
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/perfil")}>
@@ -257,22 +257,29 @@ export default function PerfilPage() {
                   </div>
                 </div>
               ) : (
-                <>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Objetivo general</p>
-                    <p className="mt-1 text-gray-800">{c.objetivo_general}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                      Al terminar, el participante va a poder…
-                    </p>
-                    <ul className="mt-1 space-y-1">
-                      {c.competencias.map((comp, i) => (
-                        <li key={i} className="flex gap-2 text-gray-800">
-                          <span className="text-brand">✓</span> {comp}
-                        </li>
-                      ))}
-                    </ul>
+                <div className="grid gap-8 lg:grid-cols-2">
+                  <div className="space-y-5">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Objetivo general</p>
+                      <p className="mt-1 text-gray-800">{c.objetivo_general}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        Al terminar, el participante va a poder…
+                      </p>
+                      <ul className="mt-1 space-y-1.5">
+                        {c.competencias.map((comp, i) => (
+                          <li key={i} className="flex gap-2 text-gray-800">
+                            <span className="text-brand">✓</span> {comp}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    {c.fuera_de_alcance && (
+                      <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+                        <b>Fuera de alcance:</b> {c.fuera_de_alcance}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Temario</p>
@@ -287,12 +294,7 @@ export default function PerfilPage() {
                       ))}
                     </div>
                   </div>
-                  {c.fuera_de_alcance && (
-                    <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-                      <b>Fuera de alcance:</b> {c.fuera_de_alcance}
-                    </p>
-                  )}
-                </>
+                </div>
               )}
             </CardContent>
           </Card>
