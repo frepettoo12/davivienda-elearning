@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { ProcessStepper } from "@/components/process-stepper";
 
 const SHELL_MODELS = [
   { value: "claude-haiku-4-5", label: "Haiku 4.5 (económico)" },
@@ -291,6 +292,7 @@ export default function ScormPage() {
 
   return (
     <div className="p-6">
+      <ProcessStepper current="scorm" mallaId={mallaId} />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-2">

@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { ProcessStepper } from "@/components/process-stepper";
 
 export default function PerfilPage() {
   const searchParams = useSearchParams();
@@ -151,6 +152,7 @@ export default function PerfilPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
+      <ProcessStepper current="perfil" solicitudId={solicitudId} />
       <div>
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/perfil")}>
           ‹ Solicitudes

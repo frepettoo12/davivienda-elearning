@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { obtenerMalla, generarGuiones, listarSolicitudes, MallaItem, Guion, SolicitudListItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ProcessStepper } from "@/components/process-stepper";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -156,6 +157,7 @@ export default function DisenoPage() {
 
   return (
     <div className="p-6">
+      <ProcessStepper current="diseno" mallaId={mallaId} />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-2">

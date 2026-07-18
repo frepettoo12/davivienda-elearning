@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useCompany } from "@/contexts/CompanyContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProcessStepper } from "@/components/process-stepper";
 
 // Instrucciones de importación SCORM por LMS. "match" liga el LMS configurado
 // por la empresa para mostrarlo primero.
@@ -237,6 +238,7 @@ export default function LmsPage() {
   // ── Detalle: descargar paquete + instrucciones + marcar publicado ──
   return (
     <div className="p-6">
+      <ProcessStepper current="lms" mallaId={mallaId} solicitudId={solicitudId} />
       <div className="mb-6">
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/lms")}>
           ‹ Cursos

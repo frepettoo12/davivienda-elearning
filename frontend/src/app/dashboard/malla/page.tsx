@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { ProcessStepper } from "@/components/process-stepper";
 import {
   Select,
   SelectContent,
@@ -306,6 +307,7 @@ export default function MallaPage() {
 
   return (
     <div className="p-6">
+      <ProcessStepper current="malla" solicitudId={solicitudId} />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-2">

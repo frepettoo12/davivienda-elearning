@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProcessStepper } from "@/components/process-stepper";
 
 const TIPO_RECURSO_ICONS: Record<string, string> = {
   "Video avatar": "🎬",
@@ -416,6 +417,7 @@ export default function ContenidoPage() {
 
   return (
     <div className="p-6">
+      <ProcessStepper current="contenido" mallaId={mallaId} />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-2">
