@@ -920,12 +920,39 @@ def crear_solicitud(req: https_fn.Request, ctx: RequestContext) -> https_fn.Resp
         if ctx.uid:
             assign_user_company(ctx.uid, ctx.email, company_id)
 
+    curso_dict = solicitud_req.curso.model_dump()
+
+    # Intake asistido (preguntas de clarificación + documentos): se guarda tal
+    # cual, y su contenido se COMPILA en curso.documentacion para que la
+    # generación de malla/perfil lo consuma sin cambios.
+    intake = data.get("intake") if isinstance(data.get("intake"), dict) else None
+    if intake:
+        partes = []
+        for c in intake.get("clarificaciones") or []:
+            if c.get("pregunta") and c.get("respuesta"):
+                partes.append(f"P: {c['pregunta']}\nR: {c['respuesta']}")
+        contexto_qa = ("CONTEXTO DE CLARIFICACIÓN:\n" + "\n\n".join(partes)) if partes else ""
+        docs_txt = []
+        for d in intake.get("documentos") or []:
+            titulo = (d.get("titulo") or "").strip()
+            contenido = (d.get("contenido") or "").strip()
+            if titulo and contenido:
+                docs_txt.append(f"### {titulo}\n{contenido}")
+            elif titulo and d.get("adjunto_url"):
+                docs_txt.append(f"### {titulo}\n(archivo adjunto: {d.get('adjunto_nombre') or d['adjunto_url']})")
+        docs_seccion = ("DOCUMENTOS DE REFERENCIA:\n\n" + "\n\n".join(docs_txt)) if docs_txt else ""
+        compilado = "\n\n".join(p for p in [contexto_qa, docs_seccion] if p)
+        if compilado:
+            base = (curso_dict.get("documentacion") or "").strip()
+            curso_dict["documentacion"] = (base + "\n\n" + compilado).strip() if base else compilado
+
     # Crear documento en Firestore
     doc_ref = get_db().collection("solicitudes").document()
     doc_data = {
         "company_id": company_id,
         "solicitante": solicitud_req.solicitante.model_dump(),
-        "curso": solicitud_req.curso.model_dump(),
+        "curso": curso_dict,
+        "intake": intake,
         "status": SolicitudStatus.PENDIENTE.value,
         "asignado_a": None,
         "prioridad": solicitud_req.prioridad.value,
@@ -1735,6 +1762,206 @@ def validar_perfil(req: https_fn.Request, ctx: RequestContext) -> https_fn.Respo
         asignado=sol.get("asignado_a"), company=empresa_solicitud,
     )
     return _response({"ok": True, "status": perfil["status"]})
+
+
+# ============== INTAKE ASISTIDO (lado solicitante) ==============
+
+def _curso_para_prompt(curso: dict) -> str:
+    return (
+        f"- Curso: {curso.get('nombre','')}\n"
+        f"- Tipo/arquetipo: {curso.get('course_type', curso.get('tipo_curso',''))}\n"
+        f"- Audiencia: {curso.get('audiencia','')}\n"
+        f"- Nivel: {curso.get('nivel','')}\n"
+        f"- Duración: {curso.get('duracion_min','')} min\n"
+        f"- Objetivo: {curso.get('objetivo','')}\n"
+        f"- Temas: {str(curso.get('temas',''))[:1500]}"
+    )
+
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+@require_auth(allow_unassigned=True)
+def intake_preguntas(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /intake/preguntas - La IA lee el borrador del curso y devuelve 2-4
+    preguntas de clarificación para que el solicitante las responda antes de enviar.
+    Body: { curso }. Devuelve: { preguntas: [{id, pregunta, ayuda}] }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        curso = data.get("curso") or {}
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not curso.get("nombre"):
+        return _error("Falta 'curso'")
+
+    from openai import OpenAI
+    from core.config import get_openai_key
+    api_key = get_openai_key()
+    if not api_key:
+        return _error("Missing OPENAI_API_KEY", 500)
+
+    prompt = f"""Sos un diseñador instruccional entrevistando a quien PIDE un curso e-learning
+(no es experto en formación). Hacé entre 2 y 4 PREGUNTAS DE CLARIFICACIÓN concretas y fáciles de
+responder, que te falten para diseñar bien el curso. Deben ser específicas al tipo y objetivo,
+no genéricas. Ejemplos: para un onboarding preguntar si es presencial/remoto/híbrido, si es para
+un rol puntual o transversal; para compliance preguntar qué normativa/versión aplica y qué pasa si
+se incumple.
+
+SOLICITUD (borrador):
+{_curso_para_prompt(curso)}
+
+Respondé SOLO JSON:
+{{"preguntas": [{{"id": "q1", "pregunta": "texto claro y directo", "ayuda": "una pista corta de qué esperás, o null"}}]}}"""
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=30.0)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Responde SOLO JSON válido, sin markdown."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+        resultado = json.loads(_strip_markdown_json(response.choices[0].message.content))
+    except Exception as e:
+        return _error(f"Error generando preguntas: {e}", 500)
+
+    preguntas = []
+    for i, q in enumerate((resultado.get("preguntas") or [])[:4]):
+        texto = str(q.get("pregunta") or "").strip()
+        if not texto:
+            continue
+        preguntas.append({
+            "id": str(q.get("id") or f"q{i+1}"),
+            "pregunta": texto,
+            "ayuda": (str(q.get("ayuda")).strip() if q.get("ayuda") else None),
+        })
+    if not preguntas:
+        return _error("La IA no devolvió preguntas válidas", 500)
+    return _response({"preguntas": preguntas})
+
+
+@https_fn.on_request(cors=cors_options, secrets=[OPENAI_API_KEY])
+@require_auth(allow_unassigned=True)
+def intake_documentos(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /intake/documentos - La IA recomienda 2-10 documentos/textos a adjuntar
+    como referencia, según el curso y las respuestas de clarificación.
+    Body: { curso, clarificaciones: [{pregunta, respuesta}] }
+    Devuelve: { documentos: [{titulo, motivo}] }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        curso = data.get("curso") or {}
+        clarificaciones = data.get("clarificaciones") or []
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+    if not curso.get("nombre"):
+        return _error("Falta 'curso'")
+
+    from openai import OpenAI
+    from core.config import get_openai_key
+    api_key = get_openai_key()
+    if not api_key:
+        return _error("Missing OPENAI_API_KEY", 500)
+
+    qa = "\n".join(
+        f"- {c.get('pregunta','')} → {c.get('respuesta','')}"
+        for c in clarificaciones if c.get('pregunta')
+    ) or "(sin respuestas de clarificación)"
+
+    prompt = f"""Sos un diseñador instruccional. Recomendá entre 2 y 10 DOCUMENTOS o TEXTOS internos
+que quien pide este curso debería adjuntar como referencia para que el material sea preciso y
+alineado a la realidad de la empresa. Para cada uno, dá un título claro del documento y una frase
+de por qué clarifica el curso. Ejemplos para un onboarding: "Misión y valores", "Política de
+vacaciones y licencias", "Organigrama del área", "Beneficios y prestaciones".
+
+SOLICITUD (borrador):
+{_curso_para_prompt(curso)}
+
+RESPUESTAS DE CLARIFICACIÓN:
+{qa}
+
+Respondé SOLO JSON:
+{{"documentos": [{{"titulo": "Nombre del documento", "motivo": "por qué clarifica el curso, una frase"}}]}}"""
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=30.0)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Responde SOLO JSON válido, sin markdown."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+        )
+        resultado = json.loads(_strip_markdown_json(response.choices[0].message.content))
+    except Exception as e:
+        return _error(f"Error recomendando documentos: {e}", 500)
+
+    documentos = []
+    for d in (resultado.get("documentos") or [])[:10]:
+        titulo = str(d.get("titulo") or "").strip()
+        if not titulo:
+            continue
+        documentos.append({"titulo": titulo, "motivo": str(d.get("motivo") or "").strip()})
+    if not documentos:
+        return _error("La IA no devolvió documentos válidos", 500)
+    return _response({"documentos": documentos})
+
+
+_DOC_MIMES = {
+    "application/pdf": "pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/msword": "doc",
+    "text/plain": "txt",
+}
+_DOC_MAGIC = {
+    "application/pdf": b"%PDF",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": b"PK\x03\x04",
+    "application/msword": b"\xd0\xcf\x11\xe0",
+}
+
+
+@https_fn.on_request(cors=cors_options)
+@require_auth(allow_unassigned=True)
+def subir_documento(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
+    """POST /intake/documento - Sube un archivo de referencia (PDF/DOCX/TXT) a
+    Storage y devuelve su URL pública. Body: { data_url, nombre? }"""
+    if req.method != "POST":
+        return _error("Method not allowed", 405)
+    try:
+        data = req.get_json() or {}
+        data_url = str(data.get("data_url") or "")
+        nombre = str(data.get("nombre") or "documento").strip()
+    except Exception as e:
+        return _error(f"Invalid request: {e}")
+
+    import base64
+    import re as _re
+    m = _re.match(r"^data:([-\w.+/]+);base64,(.+)$", data_url, _re.S)
+    if not m or m.group(1) not in _DOC_MIMES:
+        return _error("Formato inválido: subí un PDF, DOCX, DOC o TXT")
+    mime = m.group(1)
+    try:
+        raw = base64.b64decode(m.group(2))
+    except Exception:
+        return _error("Base64 inválido")
+    if len(raw) > 5 * 1024 * 1024:
+        return _error("El archivo no puede superar 5 MB")
+    magic = _DOC_MAGIC.get(mime)
+    if magic and not raw.startswith(magic):
+        return _error("El archivo no coincide con el formato declarado")
+
+    ext = _DOC_MIMES[mime]
+    company_seg = ctx.company_id or DEFAULT_COMPANY_ID
+    safe_name = _re.sub(r"[^a-zA-Z0-9_.-]", "_", nombre)[:60] or "documento"
+    blob_path = f"companies/{company_seg}/intake/{uuid.uuid4().hex[:10]}_{safe_name}.{ext}"
+    blob = get_bucket().blob(blob_path)
+    blob.upload_from_string(raw, content_type=mime)
+    blob.make_public()
+    return _response({"ok": True, "url": blob.public_url, "nombre": nombre})
 
 
 # ============== TEMPLATES DE MALLA ==============

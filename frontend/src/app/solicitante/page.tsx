@@ -3,7 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
-import { crearSolicitud } from "@/lib/api";
+import {
+  crearSolicitud,
+  intakePreguntas,
+  intakeDocumentos,
+  subirDocumento,
+  type Curso,
+  type IntakePregunta,
+} from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/contexts/CompanyContext";
 import { Button } from "@/components/ui/button";
@@ -53,6 +60,111 @@ export default function NuevaSolicitudPage() {
   const [success, setSuccess] = useState(false);
   const [excelMsg, setExcelMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Wizard de intake asistido: 1 datos · 2 clarificación IA · 3 documentos IA.
+  const [paso, setPaso] = useState<1 | 2 | 3>(1);
+  const [iaWorking, setIaWorking] = useState(false);
+  const [iaError, setIaError] = useState<string | null>(null);
+  const [preguntas, setPreguntas] = useState<IntakePregunta[]>([]);
+  const [respuestas, setRespuestas] = useState<Record<string, string>>({});
+  const [docsRecom, setDocsRecom] = useState<Array<{ titulo: string; motivo: string }>>([]);
+  // Estado por documento marcado: contenido pegado y/o archivo adjunto.
+  const [docsSel, setDocsSel] = useState<Record<string, { contenido: string; adjunto_url?: string; adjunto_nombre?: string; subiendo?: boolean }>>({});
+  const docFileRef = useRef<HTMLInputElement>(null);
+  const [docSubiendoTitulo, setDocSubiendoTitulo] = useState<string | null>(null);
+
+  const cursoActual = (): Curso => ({
+    nombre: formData.cursoNombre,
+    course_type: formData.courseType,
+    audiencia: formData.audiencia,
+    nivel: formData.nivel,
+    duracion_min: formData.duracionMin,
+    objetivo: formData.objetivo,
+    temas: formData.temas,
+    requiere_eval: formData.requiereEval,
+  });
+
+  // Paso 1 → 2: valida los requeridos y pide las preguntas de clarificación.
+  const irAClarificacion = async () => {
+    if (!formData.nombre || !formData.email || !formData.area || !formData.cursoNombre ||
+        !formData.audiencia || !formData.nivel || !formData.objetivo || !formData.temas) {
+      setError("Completá todos los campos obligatorios antes de continuar.");
+      return;
+    }
+    setError(null);
+    setIaError(null);
+    setIaWorking(true);
+    try {
+      const r = await intakePreguntas(cursoActual());
+      setPreguntas(r.preguntas);
+      setPaso(2);
+    } catch (e) {
+      setIaError(e instanceof Error ? e.message : "Error");
+      setPreguntas([]);
+      setPaso(2); // permitir avanzar aunque la IA falle (resiliencia)
+    } finally {
+      setIaWorking(false);
+    }
+  };
+
+  // Paso 2 → 3: pide los documentos recomendados con las respuestas.
+  const irADocumentos = async () => {
+    setIaError(null);
+    setIaWorking(true);
+    const clarificaciones = preguntas
+      .map((q) => ({ pregunta: q.pregunta, respuesta: (respuestas[q.id] || "").trim() }))
+      .filter((c) => c.respuesta);
+    try {
+      const r = await intakeDocumentos(cursoActual(), clarificaciones);
+      setDocsRecom(r.documentos);
+      setPaso(3);
+    } catch (e) {
+      setIaError(e instanceof Error ? e.message : "Error");
+      setDocsRecom([]);
+      setPaso(3);
+    } finally {
+      setIaWorking(false);
+    }
+  };
+
+  const toggleDoc = (titulo: string) => {
+    setDocsSel((prev) => {
+      const next = { ...prev };
+      if (next[titulo]) delete next[titulo];
+      else next[titulo] = { contenido: "" };
+      return next;
+    });
+  };
+
+  const onSubirArchivoDoc = async (titulo: string, file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setIaError("El archivo no puede superar 5 MB"); return; }
+    setDocsSel((prev) => ({ ...prev, [titulo]: { ...(prev[titulo] || { contenido: "" }), subiendo: true } }));
+    try {
+      const dataUrl = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result));
+        fr.onerror = () => rej(fr.error);
+        fr.readAsDataURL(file);
+      });
+      const up = await subirDocumento(dataUrl, file.name);
+      // TXT: además leer el texto para que alimente a la IA.
+      let contenidoTxt = "";
+      if (file.type === "text/plain") contenidoTxt = await file.text();
+      setDocsSel((prev) => ({
+        ...prev,
+        [titulo]: {
+          contenido: contenidoTxt || prev[titulo]?.contenido || "",
+          adjunto_url: up.url,
+          adjunto_nombre: up.nombre,
+          subiendo: false,
+        },
+      }));
+    } catch (e) {
+      setIaError(e instanceof Error ? e.message : "Error subiendo el archivo");
+      setDocsSel((prev) => ({ ...prev, [titulo]: { ...(prev[titulo] || { contenido: "" }), subiendo: false } }));
+    }
+  };
 
   const [formData, setFormData] = useState({
     // Solicitante
@@ -206,6 +318,20 @@ export default function NuevaSolicitudPage() {
           documentacion: formData.documentacion || undefined,
         },
         prioridad: formData.prioridad,
+        intake: {
+          clarificaciones: preguntas
+            .map((q) => ({ pregunta: q.pregunta, respuesta: (respuestas[q.id] || "").trim() }))
+            .filter((c) => c.respuesta),
+          documentos: docsRecom
+            .filter((d) => docsSel[d.titulo])
+            .map((d) => ({
+              titulo: d.titulo,
+              motivo: d.motivo,
+              contenido: docsSel[d.titulo].contenido?.trim() || undefined,
+              adjunto_url: docsSel[d.titulo].adjunto_url,
+              adjunto_nombre: docsSel[d.titulo].adjunto_nombre,
+            })),
+        },
       });
 
       setSuccess(true);
@@ -233,14 +359,44 @@ export default function NuevaSolicitudPage() {
     );
   }
 
+  const STEPS = [
+    { n: 1, label: "Datos del curso" },
+    { n: 2, label: "Clarificación" },
+    { n: 3, label: "Documentos" },
+  ];
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Nueva Solicitud de Curso</h1>
-        <p className="text-gray-500">Completa el formulario para solicitar un nuevo curso e-learning</p>
+        <p className="text-gray-500">La IA te va a ayudar a precisar el pedido antes de enviarlo</p>
       </div>
 
+      {/* Stepper */}
+      <div className="mb-6 flex items-center gap-2">
+        {STEPS.map((s, i) => (
+          <div key={s.n} className="flex items-center">
+            {i > 0 && <div className={`mx-2 h-px w-8 ${paso > s.n - 1 ? "bg-brand" : "bg-gray-200"}`} />}
+            <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
+              paso === s.n ? "bg-brand text-white" : paso > s.n ? "text-brand" : "text-gray-400"
+            }`}>
+              <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
+                paso === s.n ? "border-white/60 bg-white/20" : paso > s.n ? "border-brand bg-brand text-white" : "border-gray-300"
+              }`}>{paso > s.n ? "✓" : s.n}</span>
+              {s.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {iaError && (
+        <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+          ⚠ El asistente de IA no está disponible ({iaError}). Podés continuar sin él.
+        </div>
+      )}
+
       {/* Importar desde Excel */}
+      {paso === 1 && (
       <Card className="mb-6 border-dashed">
         <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
           <div className="flex-1">
@@ -266,11 +422,14 @@ export default function NuevaSolicitudPage() {
           </div>
         </CardContent>
       </Card>
-      {excelMsg && (
+      )}
+      {paso === 1 && excelMsg && (
         <div className="mb-6 rounded-lg bg-green-50 p-3 text-sm text-green-700">{excelMsg}</div>
       )}
 
       <form onSubmit={handleSubmit}>
+        {/* ── PASO 1: datos del curso ── */}
+        {paso === 1 && (
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Datos del Solicitante */}
           <Card>
@@ -485,44 +644,148 @@ export default function NuevaSolicitudPage() {
                 />
               </div>
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Documentación de referencia (opcional)
-                </label>
-                <Textarea
-                  value={formData.documentacion}
-                  onChange={(e) => setFormData({ ...formData, documentacion: e.target.value })}
-                  placeholder="Pega aquí cualquier documentación, manuales o texto de referencia que pueda ayudar a crear el curso"
-                  rows={4}
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  Puedes pegar texto de manuales, políticas o cualquier material de referencia
-                </p>
-              </div>
             </CardContent>
           </Card>
         </div>
-
-        {error && (
-          <div className="mt-6 rounded-lg bg-red-50 p-4 text-red-700">
-            {error}
-          </div>
         )}
 
-        <div className="mt-6 flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => router.push("/solicitante/mis-solicitudes")}>
-            Cancelar
+        {/* ── PASO 2: preguntas de clarificación de la IA ── */}
+        {paso === 2 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">🤖 Ayudanos a entender mejor el pedido</CardTitle>
+              <CardDescription>
+                Respondé estas preguntas para que el curso salga preciso. Si no sabés algo, escribí &quot;no sé&quot;.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {preguntas.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  La IA no generó preguntas. Podés continuar al paso de documentos.
+                </p>
+              ) : (
+                preguntas.map((q, i) => (
+                  <div key={q.id}>
+                    <label className="mb-1 block text-sm font-medium text-gray-800">
+                      {i + 1}. {q.pregunta}
+                    </label>
+                    {q.ayuda && <p className="mb-1 text-xs text-gray-400">{q.ayuda}</p>}
+                    <Textarea
+                      value={respuestas[q.id] || ""}
+                      onChange={(e) => setRespuestas((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                      rows={2}
+                      placeholder="Tu respuesta…"
+                    />
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── PASO 3: documentos recomendados ── */}
+        {paso === 3 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">📎 Documentos que ayudarían al curso</CardTitle>
+              <CardDescription>
+                La IA sugiere estos materiales de referencia. Marcá los que tengas y pegá el texto o subí el archivo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {docsRecom.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  La IA no sugirió documentos. Podés enviar la solicitud igual.
+                </p>
+              ) : (
+                docsRecom.map((d) => {
+                  const sel = docsSel[d.titulo];
+                  return (
+                    <div key={d.titulo} className={`rounded-lg border p-4 ${sel ? "border-brand/40 bg-brand/5" : ""}`}>
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={Boolean(sel)}
+                          onChange={() => toggleDoc(d.titulo)}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{d.titulo}</p>
+                          <p className="text-sm text-gray-500">{d.motivo}</p>
+                        </div>
+                      </label>
+                      {sel && (
+                        <div className="mt-3 space-y-2 pl-7">
+                          <Textarea
+                            value={sel.contenido}
+                            onChange={(e) => setDocsSel((prev) => ({ ...prev, [d.titulo]: { ...prev[d.titulo], contenido: e.target.value } }))}
+                            rows={3}
+                            placeholder="Pegá el contenido del documento…"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={sel.subiendo}
+                              onClick={() => { setDocSubiendoTitulo(d.titulo); docFileRef.current?.click(); }}
+                            >
+                              {sel.subiendo ? "Subiendo…" : "📎 Subir archivo"}
+                            </Button>
+                            {sel.adjunto_nombre && <span className="text-xs text-green-600">✓ {sel.adjunto_nombre}</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+              <input
+                ref={docFileRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+                onChange={(e) => { if (docSubiendoTitulo) onSubirArchivoDoc(docSubiendoTitulo, e.target.files?.[0]); if (docFileRef.current) docFileRef.current.value = ""; }}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {error && (
+          <div className="mt-6 rounded-lg bg-red-50 p-4 text-red-700">{error}</div>
+        )}
+
+        {/* Botonera del wizard */}
+        <div className="mt-6 flex justify-between gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => (paso === 1 ? router.push("/solicitante/mis-solicitudes") : setPaso((p) => (p - 1) as 1 | 2 | 3))}
+          >
+            {paso === 1 ? "Cancelar" : "← Atrás"}
           </Button>
-          <Button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
-            {submitting ? (
-              <span className="flex items-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Enviando...
-              </span>
-            ) : (
-              "Enviar Solicitud"
-            )}
-          </Button>
+          {paso === 1 && (
+            <Button type="button" disabled={iaWorking} onClick={irAClarificacion} className="bg-brand hover:bg-brand/90">
+              {iaWorking ? "Analizando…" : "Continuar →"}
+            </Button>
+          )}
+          {paso === 2 && (
+            <Button type="button" disabled={iaWorking} onClick={irADocumentos} className="bg-brand hover:bg-brand/90">
+              {iaWorking ? "Buscando documentos…" : "Continuar →"}
+            </Button>
+          )}
+          {paso === 3 && (
+            <Button type="submit" disabled={submitting} className="bg-brand hover:bg-brand/90">
+              {submitting ? (
+                <span className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Enviando…
+                </span>
+              ) : (
+                "Enviar Solicitud"
+              )}
+            </Button>
+          )}
         </div>
       </form>
     </div>

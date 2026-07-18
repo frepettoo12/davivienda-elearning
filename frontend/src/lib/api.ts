@@ -30,6 +30,9 @@ const API_URLS = {
   listar_solicitantes: `${API_BASE}/listar_solicitantes`,
   invitar_solicitante: `${API_BASE}/invitar_solicitante`,
   eliminar_solicitante: `${API_BASE}/eliminar_solicitante`,
+  intake_preguntas: `${API_BASE}/intake_preguntas`,
+  intake_documentos: `${API_BASE}/intake_documentos`,
+  subir_documento: `${API_BASE}/subir_documento`,
   // Mallas
   crear_malla: `https://crear-malla-${CLOUDRUN_SUFFIX}`,
   obtener_malla: `https://obtener-malla-${CLOUDRUN_SUFFIX}`,
@@ -223,6 +226,58 @@ export interface PerfilSalida {
   updated_at?: string;
 }
 
+// Intake asistido: preguntas de clarificación + documentos recomendados que el
+// solicitante responde/adjunta antes de enviar. Alimenta perfil y malla.
+export interface IntakePregunta {
+  id: string;
+  pregunta: string;
+  ayuda?: string | null;
+}
+
+export interface IntakeDoc {
+  titulo: string;
+  motivo: string;
+  contenido?: string;       // texto pegado por el solicitante
+  adjunto_url?: string;     // o archivo subido a Storage
+  adjunto_nombre?: string;
+}
+
+export interface IntakeData {
+  clarificaciones: Array<{ pregunta: string; respuesta: string }>;
+  documentos: IntakeDoc[];
+  generado_at?: string;
+}
+
+export async function intakePreguntas(curso: Curso): Promise<{ preguntas: IntakePregunta[] }> {
+  const res = await apiFetch(API_URLS.intake_preguntas, {
+    method: "POST",
+    body: JSON.stringify({ curso }),
+  });
+  if (!res.ok) throw new Error(await errorDe(res, "Error generando preguntas"));
+  return res.json();
+}
+
+export async function intakeDocumentos(
+  curso: Curso,
+  clarificaciones: Array<{ pregunta: string; respuesta: string }>
+): Promise<{ documentos: Array<{ titulo: string; motivo: string }> }> {
+  const res = await apiFetch(API_URLS.intake_documentos, {
+    method: "POST",
+    body: JSON.stringify({ curso, clarificaciones }),
+  });
+  if (!res.ok) throw new Error(await errorDe(res, "Error recomendando documentos"));
+  return res.json();
+}
+
+export async function subirDocumento(dataUrl: string, nombre?: string): Promise<{ url: string; nombre: string }> {
+  const res = await apiFetch(API_URLS.subir_documento, {
+    method: "POST",
+    body: JSON.stringify({ data_url: dataUrl, nombre }),
+  });
+  if (!res.ok) throw new Error(await errorDe(res, "Error subiendo el archivo"));
+  return res.json();
+}
+
 export interface Solicitud {
   id: string;
   solicitante: Solicitante;
@@ -231,6 +286,7 @@ export interface Solicitud {
   prioridad: "alta" | "media" | "baja";
   asignado_a?: string;
   malla_id?: string;
+  intake?: IntakeData;
   perfil_salida?: PerfilSalida;
   created_at?: string;
   updated_at?: string;
@@ -352,6 +408,9 @@ export async function crearSolicitud(data: {
   solicitante: Solicitante;
   curso: Curso;
   prioridad?: "alta" | "media" | "baja";
+  // Intake asistido (clarificaciones + documentos) — el backend lo guarda y
+  // compila su contenido en curso.documentacion.
+  intake?: IntakeData;
   // Multi-tenant: empresa a la que pertenece la solicitud. Solo se usa para
   // solicitantes externos (gmail) sin empresa asignada; si el dominio del
   // usuario ya mapea a una empresa, el backend la deriva del token.

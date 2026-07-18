@@ -262,6 +262,55 @@ export default function SolicitudDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Contexto del solicitante (intake asistido por IA) */}
+          {solicitud.intake && (solicitud.intake.clarificaciones?.length > 0 || solicitud.intake.documentos?.length > 0) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Contexto del solicitante</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5 text-sm">
+                {solicitud.intake.clarificaciones?.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Clarificaciones</p>
+                    <div className="space-y-3">
+                      {solicitud.intake.clarificaciones.map((c, i) => (
+                        <div key={i}>
+                          <p className="font-medium text-gray-800">{c.pregunta}</p>
+                          <p className="text-gray-600">{c.respuesta}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {solicitud.intake.documentos?.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Documentos de referencia</p>
+                    <div className="space-y-3">
+                      {solicitud.intake.documentos.map((d, i) => (
+                        <div key={i} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-gray-900">{d.titulo}</p>
+                            {d.adjunto_url && (
+                              <a href={d.adjunto_url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-brand underline">
+                                ⬇ {d.adjunto_nombre || "descargar"}
+                              </a>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400">{d.motivo}</p>
+                          {d.contenido && (
+                            <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-600">
+                              {d.contenido}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Comments */}
           <Card>
             <CardHeader>

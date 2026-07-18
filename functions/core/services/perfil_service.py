@@ -42,6 +42,11 @@ def generar_perfil(
     if not api_key:
         return None, "Falta OPENAI_API_KEY"
 
+    # Contexto del intake (clarificaciones + documentos de referencia que pegó el
+    # solicitante) — la señal más rica para un perfil alineado a la realidad.
+    docs = str(curso.get("documentacion") or "").strip()
+    contexto = f"\nCONTEXTO Y DOCUMENTACIÓN DE REFERENCIA DEL ÁREA (usalo para precisar el perfil):\n{docs[:6000]}\n" if docs else ""
+
     iteracion = ""
     if perfil_actual and feedback:
         iteracion = f"""
@@ -69,7 +74,7 @@ SOLICITUD:
 - Objetivo declarado: {curso.get('objetivo', '')}
 - Temas pedidos: {str(curso.get('temas', ''))[:3000]}
 - Requiere evaluación: {curso.get('requiere_eval', True)}
-{iteracion}
+{contexto}{iteracion}
 REGLAS:
 1. Competencias: 3 a 6, observables y medibles ("identifica…", "aplica…", "decide…"),
    escritas para la audiencia real. Nada de "conocer" o "entender".

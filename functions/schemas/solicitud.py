@@ -82,6 +82,9 @@ class SolicitudCreateRequest(BaseModel):
     solicitante: Solicitante
     curso: CursoInfo
     prioridad: Prioridad = Field(default=Prioridad.MEDIA)
+    # Intake asistido (clarificaciones + documentos). Se lee del body crudo en
+    # el endpoint; declarado acá para claridad (pydantic ignora extra por default).
+    intake: Optional[dict] = None
 
 
 class SolicitudUpdateRequest(BaseModel):
