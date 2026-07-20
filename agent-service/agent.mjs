@@ -15,7 +15,9 @@ const SHOT = `--headless --disable-gpu --force-device-scale-factor=0.5`;
 
 // Instrucciones del agente parametrizadas por la marca del tenant.
 // Sin brand (null) usa Davivienda, el comportamiento pre-multi-tenant.
-export function buildVerifyInstructions(brand) {
+//   mode "full" → verificación exhaustiva (desktop+mobile, 2 rondas). Más caro.
+//   mode "lite" → 1 render mobile, 1 corrección, sin releer. ~3-4x más barato.
+export function buildVerifyInstructions(brand, mode = "full") {
   const b = brand || {
     nombre: "Davivienda",
     colorPrimario: "#DA291C",
@@ -24,9 +26,30 @@ export function buildVerifyInstructions(brand) {
     fuenteTexto: "Open Sans",
     logoUrl: null,
   };
+  const header = `Estás editando un proyecto de e-learning HTML/CSS/JS para ${b.nombre}.
+Marca: color primario ${b.colorPrimario}, acento ${b.colorSecundario}. Tipografías ${b.fuenteTitulos}/${b.fuenteTexto}.${b.logoUrl ? `\nLogo de la empresa disponible en: ${b.logoUrl}` : ""}`;
+
+  if (mode === "lite") {
+    return `
+${header}
+
+VERIFICACIÓN ECONÓMICA (seguí esto al pie de la letra para no gastar de más):
+  1. Escribí/editá el index.html completo de una (no en muchos pasos chicos).
+  2. Si el cambio es SOLO texto, NO renderices: terminá.
+  3. Si tocaste layout/CSS/estructura, hacé UNA sola verificación:
+       ${CHROME} ${SHOT} --screenshot=_check.png --window-size=390,844 "file://$(pwd)/index.html"
+     Leé _check.png UNA vez. Corregí SOLO lo que esté claramente roto (overflow
+     horizontal, texto cortado, elementos superpuestos). Cosas menores/estéticas: dejalas.
+  4. Borrá _check.png. NO vuelvas a renderizar ni a leer screenshots una segunda vez.
+
+REGLAS DURAS: máximo UN render + UNA corrección. No busques la perfección; buscá
+"correcto y prolijo". Priorizá terminar rápido sobre pulir detalles.
+Al final, resumí en 1-2 líneas qué hiciste.
+`.trim();
+  }
+
   return `
-Estás editando un proyecto de e-learning HTML/CSS/JS para ${b.nombre}.
-Marca: color primario ${b.colorPrimario}, acento ${b.colorSecundario}. Tipografías ${b.fuenteTitulos}/${b.fuenteTexto}.${b.logoUrl ? `\nLogo de la empresa disponible en: ${b.logoUrl}` : ""}
+${header}
 
 REGLA DE VERIFICACIÓN (esto es lo que te diferencia de un editor común):
 Verificá renderizando, PERO con criterio para no gastar de más:
@@ -61,18 +84,29 @@ export const VERIFY_INSTRUCTIONS = buildVerifyInstructions(null);
  * @param {(e:object)=>void} onEvent  Recibe eventos normalizados
  * @returns {Promise<{sessionId?:string, costUsd:number, toolCalls:number}>}
  */
-export async function runAgent({ instruction, cwd, model = "claude-sonnet-4-6", resume, brand }, onEvent) {
+export async function runAgent({ instruction, cwd, model = "claude-sonnet-4-6", resume, brand, verifyMode = "full", maxTurns, apiKey }, onEvent) {
   let sessionId, costUsd = 0, toolCalls = 0;
+
+  // Cap de turnos: en modo lite acotamos fuerte (escribir + 1 render + 1 fix);
+  // en full dejamos margen. Se puede override con maxTurns explícito.
+  const turnsCap = maxTurns ?? (verifyMode === "lite" ? 16 : 40);
+
+  // API key por request (BYOK o plataforma): se inyecta como env del subproceso
+  // del CLI. `env` REEMPLAZA el env, así que hay que spread process.env. Sin apiKey
+  // → no pasamos env → el CLI hereda process.env (sesión Max local en dev).
+  const envOverride = apiKey ? { ...process.env, ANTHROPIC_API_KEY: apiKey } : undefined;
 
   for await (const msg of query({
     prompt: instruction,
     options: {
       cwd,
       model,
-      systemPrompt: { type: "preset", preset: "claude_code", append: buildVerifyInstructions(brand) },
+      systemPrompt: { type: "preset", preset: "claude_code", append: buildVerifyInstructions(brand, verifyMode) },
       permissionMode: "bypassPermissions",
       disallowedTools: ["WebFetch", "WebSearch", "Bash(rm -rf /*)", "Bash(sudo *)"],
       settingSources: [],
+      maxTurns: turnsCap,
+      ...(envOverride ? { env: envOverride } : {}),
       ...(resume ? { resume } : {}),
     },
   })) {

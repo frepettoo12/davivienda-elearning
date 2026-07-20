@@ -11,12 +11,14 @@ from ..config import get_openai_key
 TIPOS_RECURSO = [
     "Video avatar",
     "Video",
+    "Manual",
     "Interactivo",
     "Infografía",
     "Comparador",
     "Flashcards",
     "Caso práctico",
     "Quiz",
+    "Video externo",
     "Timeline",
     "Drag & Drop",
     "Accordion",
@@ -108,9 +110,15 @@ def generar_malla(
     empresa: Dict[str, Any] | None = None,
     template: Dict[str, Any] | None = None,
     perfil: Dict[str, Any] | None = None,
+    permitir_externos: bool = False,
+    cursos_externos: List[Dict[str, Any]] | None = None,
 ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
     Genera una malla curricular usando GPT-4.
+
+    permitir_externos: si True, la IA puede incluir recursos "Video externo"
+    (cursos/videos de YouTube u otros) para herramientas técnicas.
+    cursos_externos: recomendaciones del solicitante [{titulo, url}].
 
     Returns:
         Tuple de (lista de recursos de la malla, error si hubo)
@@ -122,6 +130,25 @@ def generar_malla(
     docs_section = ""
     if documentacion:
         docs_section = f"\n\nDOCUMENTACIÓN DE REFERENCIA:{documentacion[:8000]}"
+
+    # Cursos externos: solo si Learning lo habilitó. Se le pasan las
+    # recomendaciones del solicitante y se autoriza el tipo "Video externo".
+    externos_section = ""
+    if permitir_externos:
+        recos = ""
+        if cursos_externos:
+            recos = "\nCURSOS EXTERNOS RECOMENDADOS POR EL SOLICITANTE (usalos si encajan):\n" + "\n".join(
+                f"- {c.get('titulo','')}: {c.get('url','')}" for c in cursos_externos if c.get('url')
+            )
+        externos_section = (
+            "\n\nCURSOS EXTERNOS HABILITADOS: para herramientas técnicas de terceros (ej. Slack, "
+            "HubSpot, Excel), PODÉS incluir recursos tipo \"Video externo\" apuntando a videos/cursos "
+            "públicos de YouTube u oficiales. Incluí la URL real en el campo \"url\" del recurso. Usalos "
+            "solo cuando aporten más que un recurso propio (típicamente para operar una herramienta "
+            "externa)." + recos
+        )
+    else:
+        externos_section = "\n\nNO incluyas recursos externos (YouTube/terceros): todo el contenido es propio."
 
     # Perfil de salida validado por el área solicitante: es el CONTRATO del
     # curso — la malla debe cubrir sus competencias y seguir su temario.
@@ -164,12 +191,14 @@ PERFIL DIDÁCTICO OBLIGATORIO:
 TIPOS DE RECURSO DISPONIBLES:
 - Video avatar: Presentador virtual explicando (ideal para introducción, conceptos)
 - Video: Video tradicional sin avatar
+- Manual: Documento explicativo detallado con secciones y subtítulos (ideal para procedimientos, políticas o temas que requieren explicación a fondo y consulta posterior)
 - Interactivo: Botones que revelan información al hacer clic
 - Infografía: Visualización de datos o procesos
 - Comparador: Tabla comparativa interactiva
 - Flashcards: Tarjetas de repaso (pregunta/respuesta)
 - Caso práctico: Escenario con decisiones y feedback
 - Quiz: Preguntas de evaluación
+{externos_section}
 
 REGLAS:
 1. Divide en etapas: Introducción, Desarrollo, Cierre
@@ -262,7 +291,7 @@ REGLAS:
 3. Un bloque puede tener múltiples recursos
 4. No rompas la coherencia del arquetipo de curso
 
-TIPOS DE RECURSO: Video avatar, Video, Interactivo, Infografía, Comparador, Flashcards, Caso práctico, Quiz
+TIPOS DE RECURSO: Video avatar, Video, Manual, Interactivo, Infografía, Comparador, Flashcards, Caso práctico, Quiz, Video externo
 
 Responde SOLO con el JSON array actualizado."""
 

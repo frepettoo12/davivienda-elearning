@@ -813,6 +813,90 @@ export function generateCasoPracticoHTML(guion: Guion, brand: Brand = DEFAULT_BR
 </html>`;
 }
 
+// Manual: documento explicativo detallado con secciones. Lo usan mucho las
+// áreas de Learning para explicar temas a fondo y dejarlos para consulta.
+export function generateManualHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
+  const c = guion.contenido as {
+    titulo?: string;
+    introduccion?: string;
+    secciones?: Array<{ titulo: string; contenido: string }>;
+  };
+  const secciones = c.secciones || [];
+  // Convierte párrafos y viñetas simples ("- ") del contenido a HTML seguro.
+  const cuerpo = (txt: string) =>
+    String(txt || "").split(/\n\n+/).map((bloque) => {
+      const lineas = bloque.split("\n");
+      if (lineas.every((l) => /^\s*[-•]\s+/.test(l))) {
+        return `<ul>${lineas.map((l) => `<li>${esc(l.replace(/^\s*[-•]\s+/, ""))}</li>`).join("")}</ul>`;
+      }
+      return `<p>${esc(bloque)}</p>`;
+    }).join("");
+
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(c.titulo || guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
+<style>
+  ${baseStyles(brand)}
+  body { background: #f7f8fb; color: #1a1a2e; }
+  .doc { max-width: 860px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 48px; box-shadow: 0 2px 24px rgba(0,0,0,.06); }
+  .doc h1 { color: #1a1a2e; font-size: 30px; margin-bottom: 8px; }
+  .intro { color: #555; font-size: 17px; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 2px solid var(--brand-primary); }
+  .sec { margin-bottom: 28px; }
+  .sec h2 { font-size: 20px; color: var(--brand-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .sec .num { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background: var(--brand-primary); color:#fff; font-size:13px; }
+  .sec p { color: #333; line-height: 1.75; margin-bottom: 12px; }
+  .sec ul { margin: 8px 0 12px 22px; color: #333; line-height: 1.7; }
+  .toc { background:#f0f2f7; border-radius:12px; padding:16px 20px; margin-bottom:28px; }
+  .toc p { font-weight:600; margin-bottom:6px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#888; }
+  .toc a { color: var(--brand-primary); text-decoration:none; display:block; padding:3px 0; }
+</style></head>
+<body>
+  <div class="doc">
+    <div class="header" style="border:0;padding:0;margin-bottom:16px">${logoHtml(brand)}</div>
+    <h1>${esc(c.titulo || guion.bloque)}</h1>
+    ${c.introduccion ? `<p class="intro">${esc(c.introduccion)}</p>` : ""}
+    ${secciones.length > 1 ? `<div class="toc"><p>Contenido</p>${secciones.map((s, i) => `<a href="#s${i}">${i + 1}. ${esc(s.titulo)}</a>`).join("")}</div>` : ""}
+    ${secciones.map((s, i) => `
+      <div class="sec" id="s${i}">
+        <h2><span class="num">${i + 1}</span> ${esc(s.titulo)}</h2>
+        ${cuerpo(s.contenido)}
+      </div>`).join("")}
+  </div>
+</body></html>`;
+}
+
+// Video externo: referencia a un curso/video de terceros (YouTube u oficial).
+export function generateVideoExternoHTML(guion: Guion, brand: Brand = DEFAULT_BRAND): string {
+  const c = guion.contenido as { titulo?: string; url?: string; descripcion?: string };
+  const url = String(c.url || "").trim();
+  const safe = /^https?:\/\//i.test(url) ? url : "";
+  // Embed de YouTube si es un link de YouTube; si no, tarjeta con enlace.
+  const ytId = safe.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)?.[1];
+  const embed = ytId
+    ? `<div class="frame"><iframe src="https://www.youtube.com/embed/${ytId}" allowfullscreen title="video"></iframe></div>`
+    : safe
+    ? `<a class="cta" href="${safe}" target="_blank" rel="noreferrer">▶ Abrir el curso externo</a>`
+    : `<p class="pendiente">⚠ El equipo de Learning debe completar el enlace de este recurso.</p>`;
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(c.titulo || guion.bloque)} - ${esc(brand.nombreDisplay)}</title>
+<style>
+  ${baseStyles(brand)}
+  .frame { position: relative; padding-bottom: 56.25%; height: 0; border-radius: 16px; overflow: hidden; margin-top: 24px; }
+  .frame iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; }
+  .desc { color: rgba(255,255,255,.8); margin-top: 20px; line-height: 1.6; font-size: 17px; }
+  .cta { display:inline-block; margin-top:24px; background: var(--brand-primary); color:#fff; padding:14px 28px; border-radius:12px; text-decoration:none; font-weight:600; }
+  .pendiente { margin-top:24px; color:#ffd; background: rgba(255,255,255,.08); padding:16px; border-radius:12px; }
+</style></head>
+<body>
+  <div class="container">
+    <div class="header">${logoHtml(brand)}<div><div class="title">${esc(c.titulo || guion.bloque)}</div><div class="subtitle">Curso externo</div></div></div>
+    ${c.descripcion ? `<p class="desc">${esc(c.descripcion)}</p>` : ""}
+    ${embed}
+  </div>
+</body></html>`;
+}
+
 // Genera el HTML standalone de un recurso a partir de su guión JSON.
 // Es la "semilla" que edita el Modo Agente en la fase de Contenido.
 export function generateResourceHTML(guion: Guion, tipo: string, brand: Brand = DEFAULT_BRAND): string {
@@ -829,6 +913,10 @@ export function generateResourceHTML(guion: Guion, tipo: string, brand: Brand = 
       return generateQuizHTML(guion, brand);
     case 'Caso práctico':
       return generateCasoPracticoHTML(guion, brand);
+    case 'Manual':
+      return generateManualHTML(guion, brand);
+    case 'Video externo':
+      return generateVideoExternoHTML(guion, brand);
     default:
       return `<html><body><h1>Tipo no soportado: ${esc(tipo)}</h1><pre>${esc(JSON.stringify(guion.contenido, null, 2))}</pre></body></html>`;
   }

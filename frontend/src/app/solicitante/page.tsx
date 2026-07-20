@@ -72,6 +72,9 @@ export default function NuevaSolicitudPage() {
   const [docsSel, setDocsSel] = useState<Record<string, { contenido: string; adjunto_url?: string; adjunto_nombre?: string; subiendo?: boolean }>>({});
   const docFileRef = useRef<HTMLInputElement>(null);
   const [docSubiendoTitulo, setDocSubiendoTitulo] = useState<string | null>(null);
+  // Cursos externos recomendados por el solicitante para herramientas técnicas
+  // (ej. YouTube de Slack/HubSpot). Learning decide luego si los habilita.
+  const [cursosExternos, setCursosExternos] = useState<Array<{ titulo: string; url: string }>>([]);
 
   const cursoActual = (): Curso => ({
     nombre: formData.cursoNombre,
@@ -331,6 +334,9 @@ export default function NuevaSolicitudPage() {
               adjunto_url: docsSel[d.titulo].adjunto_url,
               adjunto_nombre: docsSel[d.titulo].adjunto_nombre,
             })),
+          cursos_externos: cursosExternos
+            .map((c) => ({ titulo: c.titulo.trim(), url: c.url.trim() }))
+            .filter((c) => c.url),
         },
       });
 
@@ -747,6 +753,55 @@ export default function NuevaSolicitudPage() {
                 className="hidden"
                 onChange={(e) => { if (docSubiendoTitulo) onSubirArchivoDoc(docSubiendoTitulo, e.target.files?.[0]); if (docFileRef.current) docFileRef.current.value = ""; }}
               />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── PASO 3: cursos externos recomendados (herramientas técnicas) ── */}
+        {paso === 3 && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">▶️ ¿Conocés cursos externos útiles?</CardTitle>
+              <CardDescription>
+                Si el curso toca herramientas técnicas de terceros (ej. Slack, HubSpot, Excel) y conocés
+                buenos videos o cursos públicos (YouTube u oficiales), recomendálos acá. El equipo de
+                Learning decidirá si los incluye.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {cursosExternos.map((c, i) => (
+                <div key={i} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center">
+                  <Input
+                    value={c.titulo}
+                    onChange={(e) => setCursosExternos((prev) => prev.map((x, j) => (j === i ? { ...x, titulo: e.target.value } : x)))}
+                    placeholder="Título (ej. Slack para principiantes)"
+                    className="sm:w-1/3"
+                  />
+                  <Input
+                    value={c.url}
+                    onChange={(e) => setCursosExternos((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+                    placeholder="https://youtube.com/..."
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCursosExternos((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-dashed"
+                onClick={() => setCursosExternos((prev) => [...prev, { titulo: "", url: "" }])}
+              >
+                + Agregar curso externo
+              </Button>
             </CardContent>
           </Card>
         )}

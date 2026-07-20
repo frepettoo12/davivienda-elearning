@@ -1197,6 +1197,37 @@ chat gpt-4o single-shot (`iterar_guion_endpoint`) como motor de iteración de co
 - ⬜ **Fase 3**: validar Firebase ID token en el servicio, sandbox reforzado, `resume` multiturno.
 - Plan completo: `~/.claude/plans/mellow-seeking-map.md`.
 
+### Creación agéntica de recursos + economía de costo (Jul 2026)
+- Botón **"✨ Generar recurso con IA"** en `/dashboard/contenido` (pestaña Preview+Editor IA):
+  `buildResourceCreatePrompt` arma un brief y el agente **escribe contenido + HTML desde cero**
+  (render→verify), usando el guion gpt-4o como semilla/borrador (no como verdad). Reemplaza en la
+  práctica al single-shot para calidad.
+- **Costo real MEDIDO** (Sonnet, sesión Max local = estimación equiv-API): una creación completa NO
+  cuesta centavos como una *edición* (~$0.10–0.15) — cuesta **mucho más** por leer screenshots +
+  iterar muchos turnos + reescribir el HTML. El primer run del Organigrama: **$4.05**, 48 turnos.
+- **El driver principal era la INSTRUCCIÓN agresiva** ("renderizá desktop y mobile, mirá los
+  screenshots, corregí hasta que se vea excelente") → over-iteración. Neutralizándola (dejar la
+  verificación al system prompt) baja a **~$0.94** aún en modo full.
+- **`verifyMode` en el agent-service** (`agent.mjs` `buildVerifyInstructions(brand, mode)` + `runAgent`
+  con `maxTurns`): `lite` = 1 render mobile + 1 corrección + cap 16 turnos; `full` = desktop+mobile,
+  2 rondas, cap 40. El body de `/agent/edit` acepta `verifyMode`.
+- **Default del botón = `lite`** (frontend manda `verifyMode:"lite"` en el create; los ajustes puntuales
+  del textarea van `full`). Medido: lite ~**$0.67–0.77/recurso** (~5–6× vs el $4 original) **sin pérdida
+  de calidad visible**. Curso de ~10 recursos: ~$7 vs ~$40.
+- **Guard anti-drift**: el prompt exige respetar datos numéricos/nombres del brief (en una prueba el
+  agente cambió "75%"→"53%" solo). Sin el guard, el agente puede alterar cifras.
+- **Facturación**: local usa tu **Max** (solo local, no multiusuario en prod = ToS + rate limit); prod
+  necesita **API key Anthropic** pay-per-token. Kimi K3 NO ahorra: su precio ($3/$0.30/$15) es idéntico
+  a Sonnet 4.6. Ahorro real = optimizar el loop + Haiku para tipos simples. Modelos abiertos (DeepSeek/
+  GLM/Qwen) sí son baratos pero hay que confirmar **visión** (el loop lee screenshots).
+- Comparación viva servida en `http://localhost:8090/comparacion/index.html` (copias en
+  `agent-service/public/comparacion/` y `comparacion-agente/`).
+- Gotcha CORS/tenant (superadmin): el agent-service (a) debía permitir el header `X-Company-Id` en CORS
+  (si no, preflight falla → "Failed to fetch" solo para superadmin actuando como empresa); (b)
+  `tenant.mjs` debe pasar `projectId` explícito a firebase-admin (`GCLOUD_PROJECT`||`davivienda-elearning`),
+  si no `verifyIdToken` tira "Unable to detect a Project Id" → cae a davivienda e ignora la empresa activa
+  (brand incorrecta + preview `/ws/{empresa}` 403/404).
+
 ### Gotchas
 - macOS arm64: si numpy/pandas/lxml dan `incompatible architecture (x86_64)`, reinstalar con `pip install --force-reinstall --no-cache-dir` (eran wheels x86_64 en Mac arm64).
 - El frontend Next.js (16.x) tiene un `AGENTS.md` que avisa que difiere de versiones conocidas → copiar patrones de páginas existentes en vez de asumir.

@@ -167,6 +167,13 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
         if not template_doc:
             return _error("Template not found", 404)
 
+    # Cursos externos: Learning los habilita en esta fase (permitir_externos);
+    # las recomendaciones del solicitante vienen del intake de la solicitud.
+    permitir_externos = bool(data.get("permitir_externos"))
+    cursos_externos = data.get("cursos_externos")
+    if not isinstance(cursos_externos, list):
+        cursos_externos = None
+
     # Generar malla con GPT-4
     malla, error = generar_malla(
         nombre=solicitud.nombre,
@@ -181,6 +188,8 @@ def crear_malla(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response
         empresa=ctx.company,
         template=templates_svc.template_for_prompt(template_doc) if template_doc else None,
         perfil=data.get("perfil_salida") if isinstance(data.get("perfil_salida"), dict) else None,
+        permitir_externos=permitir_externos,
+        cursos_externos=cursos_externos,
     )
 
     if error:
@@ -636,6 +645,8 @@ Reglas:
         "Comparador": {"titulo": "string", "columnas": ["Col1", "Col2"], "filas": [{"aspecto": "string", "valores": ["v1", "v2"]}]},
         "Interactivo": {"titulo": "string", "elementos": [{"etiqueta": "string", "contenido_oculto": "string"}]},
         "Caso práctico": {"escenario": "string", "preguntas": [{"pregunta": "string", "opciones": ["a","b","c"], "correcta": 0, "feedback": "string"}]},
+        "Manual": {"titulo": "string", "introduccion": "string", "secciones": [{"titulo": "string", "contenido": "string"}]},
+        "Video externo": {"titulo": "string", "url": "https://...", "descripcion": "string"},
     }
 
     estructura_esperada = ESTRUCTURAS_TIPO.get(tipo_recurso, {})
@@ -2166,6 +2177,15 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
          "categoria_id": li.get("categoria_id"), "token_configurado": bool(li.get("token"))}
         if li else None
     )
+    # Facturación de IA: modo + budget/gasto; la API key nunca sale (solo si está o no).
+    ab = c.get("ai_billing") or {}
+    payload["ai_billing"] = {
+        "mode": ab.get("mode") or "max_local",
+        "api_key_configurada": bool(ab.get("anthropic_api_key")),
+        "budget_usd": ab.get("budget_usd"),
+        "spent_usd": ab.get("spent_usd") or 0,
+        "period": ab.get("period"),
+    }
     if ctx.is_superadmin:
         from core.tenancy import list_companies
         payload["is_superadmin"] = True
@@ -2277,6 +2297,32 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
 
     if "app_url" in data:
         update["app_url"] = str(data.get("app_url") or "").strip() or None
+
+    # Facturación de IA. mode + API key (BYOK) los edita el learning admin; el
+    # budget y el reset del gasto son SOLO superadmin (es lo que se gasta de la
+    # bolsa de la plataforma). set(merge=True) hace deep-merge → no pisa spent_usd.
+    # NOTA: la key se guarda en Firestore (enmascarada en las lecturas), igual que
+    # el token LMS; una v2 debería usar Secret Manager.
+    if "ai_billing" in data:
+        ab_in = data.get("ai_billing") or {}
+        ab_update = {}
+        mode = str(ab_in.get("mode") or "").strip().lower()
+        if mode in ("max_local", "byok", "platform"):
+            ab_update["mode"] = mode
+        if "anthropic_api_key" in ab_in:
+            ab_update["anthropic_api_key"] = str(ab_in.get("anthropic_api_key") or "").strip()
+        if "budget_usd" in ab_in or ab_in.get("reset_spent"):
+            if not ctx.is_superadmin:
+                return _error("Solo un superadmin puede fijar el budget o resetear el gasto", 403)
+            if "budget_usd" in ab_in:
+                try:
+                    ab_update["budget_usd"] = max(0.0, float(ab_in.get("budget_usd") or 0))
+                except (ValueError, TypeError):
+                    pass
+            if ab_in.get("reset_spent"):
+                ab_update["spent_usd"] = 0
+        if ab_update:
+            update["ai_billing"] = ab_update
 
     # Campos de acceso: solo superadmin (un learning no puede sumar dominios
     # ajenos ni desactivar su empresa por accidente).

@@ -242,9 +242,17 @@ export interface IntakeDoc {
   adjunto_nombre?: string;
 }
 
+export interface CursoExterno {
+  titulo: string;
+  url: string;
+}
+
 export interface IntakeData {
   clarificaciones: Array<{ pregunta: string; respuesta: string }>;
   documentos: IntakeDoc[];
+  // Cursos/videos externos (YouTube u oficiales) que el solicitante recomienda
+  // para herramientas técnicas de terceros (ej. Slack, HubSpot).
+  cursos_externos?: CursoExterno[];
   generado_at?: string;
 }
 
@@ -462,12 +470,13 @@ export async function agregarComentario(
 export async function composeSplitVideo(
   avatarUrl: string,
   contentHtml: string,
-  id: string
+  id: string,
+  opts?: { subtitles?: boolean; subtitleText?: string }
 ): Promise<{ url: string }> {
   const res = await apiFetch(`${AGENT_URL}/compose/split`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ avatarUrl, contentHtml, id }),
+    body: JSON.stringify({ avatarUrl, contentHtml, id, subtitles: !!opts?.subtitles, subtitleText: opts?.subtitleText || "" }),
   });
   if (!res.ok) {
     throw new Error(await errorDe(res, 'Error componiendo video'));
@@ -481,12 +490,13 @@ export async function composeSlidesVideo(
   audioUrl: string,
   contentHtml: string,
   id: string,
-  slideCount: number
+  slideCount: number,
+  opts?: { subtitles?: boolean; subtitleText?: string }
 ): Promise<{ url: string }> {
   const res = await apiFetch(`${AGENT_URL}/compose/slides`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ audioUrl, contentHtml, slideCount, id }),
+    body: JSON.stringify({ audioUrl, contentHtml, slideCount, id, subtitles: !!opts?.subtitles, subtitleText: opts?.subtitleText || "" }),
   });
   if (!res.ok) throw new Error(await errorDe(res, 'Error componiendo video'));
   const d = await res.json();
@@ -723,6 +733,9 @@ export async function crearMalla(data: {
   template_id?: string;
   // Perfil de salida aprobado por el área: la malla debe respetarlo.
   perfil_salida?: PerfilContenido;
+  // Learning habilita cursos externos (YouTube/oficiales) para herramientas técnicas.
+  permitir_externos?: boolean;
+  cursos_externos?: CursoExterno[];
 }): Promise<{ id: string; malla: MallaItem[]; duracion_total: number }> {
   // The API expects flat structure, not nested curso
   const payload = {
@@ -737,6 +750,8 @@ export async function crearMalla(data: {
     temas: data.curso.temas,
     requiere_eval: data.curso.requiere_eval,
     documentacion: data.curso.documentacion || "",
+    permitir_externos: !!data.permitir_externos,
+    cursos_externos: data.cursos_externos || [],
   };
 
   const res = await apiFetch(API_URLS.crear_malla, {
@@ -852,12 +867,18 @@ export interface ContentJob {
 export async function generarAudio(
   mallaId: string,
   guionId: number,
-  texto: string
+  texto: string,
+  voiceId?: string
 ): Promise<{ job_id: string; status: string }> {
   const res = await apiFetch(`${API_URLS.generar_audio}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, texto }),
+    body: JSON.stringify({
+      malla_id: mallaId,
+      guion_id: guionId,
+      texto,
+      ...(voiceId ? { voice_id: voiceId } : {}),
+    }),
   });
   if (!res.ok) {
     throw new Error(await errorDe(res, 'Error generando audio'));
@@ -868,18 +889,39 @@ export async function generarAudio(
 export async function generarVideo(
   mallaId: string,
   guionId: number,
-  audioUrl: string
+  audioUrl: string,
+  avatarId?: string
 ): Promise<{ job_id: string; status: string }> {
   const res = await apiFetch(`${API_URLS.generar_video}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ malla_id: mallaId, guion_id: guionId, audio_url: audioUrl }),
+    body: JSON.stringify({
+      malla_id: mallaId,
+      guion_id: guionId,
+      audio_url: audioUrl,
+      ...(avatarId ? { avatar_id: avatarId } : {}),
+    }),
   });
   if (!res.ok) {
     throw new Error(await errorDe(res, 'Error generando video'));
   }
   return res.json();
 }
+
+// Catálogo de voces (ElevenLabs) y avatares (HeyGen) seleccionables en la fase
+// de generación. El primero de cada lista es el default del pipeline.
+export const VOCES = [
+  { id: "JddqVF50ZSIR7SRbJE6u", nombre: "Valeria", estilo: "Casual, conversacional (colombiana)" },
+  { id: "SplyIQAjgy4DKGAnOrHi", nombre: "Clau", estilo: "Profesional, neutral (colombiana)" },
+  { id: "a0MaQpDjx7p7bZmqzFp1", nombre: "Gaby", estilo: "Joven, energética" },
+] as const;
+
+export const AVATARES = [
+  { id: "Hada_LivelyGestures_Front_public", nombre: "Hada LivelyGestures", estilo: "Gestos animados, dinámica" },
+  { id: "Annie_Business_Casual_Standing_Front_public", nombre: "Annie Business", estilo: "Profesional, de pie" },
+  { id: "Caroline_Office_Standing_Front_public", nombre: "Caroline Office", estilo: "Corporativa, seria" },
+  { id: "Adriana_BizTalk_Front_public", nombre: "Adriana BizTalk", estilo: "Talk show, sentada" },
+] as const;
 
 export async function obtenerJob(jobId: string): Promise<ContentJob> {
   // El endpoint espera ?id= (no job_id).

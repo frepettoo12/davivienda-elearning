@@ -12,7 +12,7 @@
  */
 import { initializeApp, applicationDefault, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 export const DEFAULT_COMPANY_ID = "davivienda";
 
@@ -39,13 +39,22 @@ const ENFORCE = process.env.AUTH_ENFORCE
   ? /^(1|true|yes)$/i.test(process.env.AUTH_ENFORCE)
   : process.env.NODE_ENV === "production";
 
+// El projectId es necesario para verifyIdToken (valida el `aud`) y Firestore.
+// ADC no siempre lo detecta en local ("Unable to detect a Project Id") → lo
+// seteamos explícito por env, con default al proyecto del backend.
+const PROJECT_ID =
+  process.env.GCLOUD_PROJECT ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.FIREBASE_PROJECT_ID ||
+  "davivienda-elearning";
+
 let _initTried = false;
 function ensureApp() {
   if (getApps().length) return true;
   if (_initTried) return getApps().length > 0;
   _initTried = true;
   try {
-    initializeApp({ credential: applicationDefault() });
+    initializeApp({ credential: applicationDefault(), projectId: PROJECT_ID });
     return true;
   } catch (e) {
     console.error("firebase-admin no disponible (ADC):", e?.message || e);
@@ -178,6 +187,62 @@ export function requireAuth(req, res, next) {
       req.company = DEFAULT_COMPANY;
       next();
     });
+}
+
+// ── Facturación de IA (BYOK / plataforma con budget) ──────────────────────
+// Key de la plataforma (modo "platform"): separada de ANTHROPIC_API_KEY para no
+// forzar API mode en dev (donde queremos la sesión Max si no hay billing).
+const PLATFORM_KEY = process.env.PLATFORM_ANTHROPIC_API_KEY || "";
+
+function currentPeriod() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// Decide qué API key usar y si se puede correr (budget). Aplica reset mensual
+// implícito: si el período guardado cambió, el gasto vigente cuenta como 0.
+export function resolveBilling(company) {
+  const b = (company && company.ai_billing) || {};
+  const mode = b.mode || "max_local";
+  const period = currentPeriod();
+  const spent = b.period === period ? Number(b.spent_usd) || 0 : 0;
+  const budget = Number(b.budget_usd) || 0;
+
+  if (mode === "byok") {
+    const key = b.anthropic_api_key || "";
+    return { mode, apiKey: key, budget, spent, ok: !!key,
+      message: key ? "" : "Falta la API key de Anthropic (BYOK). Cargala en Configuración → IA." };
+  }
+  if (mode === "platform") {
+    if (!PLATFORM_KEY)
+      return { mode, apiKey: "", budget, spent, ok: false, message: "La plataforma aún no tiene API key configurada." };
+    if (budget > 0 && spent >= budget)
+      return { mode, apiKey: "", budget, spent, ok: false,
+        message: `Presupuesto de IA agotado: US$${spent.toFixed(2)} de US$${budget.toFixed(2)} este mes.` };
+    return { mode, apiKey: PLATFORM_KEY, budget, spent, ok: true, message: "" };
+  }
+  // max_local (dev): sin key → sesión Max del CLI logueado.
+  return { mode: "max_local", apiKey: "", budget, spent, ok: true, message: "" };
+}
+
+// Acumula el gasto del run en companies/{id}.ai_billing (transacción con reset
+// mensual). Se llama tras cada corrida que consumió tokens.
+export async function addAiSpend(companyId, amount) {
+  if (!ensureApp() || !companyId || !(amount > 0)) return;
+  const period = currentPeriod();
+  try {
+    const ref = getFirestore().collection("companies").doc(companyId);
+    await getFirestore().runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const b = (snap.exists && snap.data().ai_billing) || {};
+      const base = b.period === period ? Number(b.spent_usd) || 0 : 0;
+      tx.set(ref, { ai_billing: {
+        spent_usd: Math.round((base + amount) * 1e6) / 1e6,
+        period, last_run_at: new Date().toISOString(),
+      } }, { merge: true });
+    });
+    idCache.delete(companyId); // el próximo budget check re-lee el gasto fresco
+  } catch (e) { console.error("addAiSpend:", e?.message || e); }
 }
 
 // Brand plano para el prompt del agente.

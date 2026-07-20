@@ -59,6 +59,23 @@ Genera un guion de video con slides.
 - slides: Lista de objetos {titulo, bullets: [...]}
 - duracion_estimada: Duración en segundos""",
 
+        "Manual": """
+Genera un MANUAL: documento explicativo detallado y bien estructurado que el
+participante puede leer y consultar. Explicá los temas a fondo, con claridad.
+- titulo: Título del manual
+- introduccion: Párrafo breve que presenta de qué trata
+- secciones: Lista de {titulo, contenido}. El "contenido" es texto explicativo
+  desarrollado (2 a 5 párrafos por sección, podés usar viñetas dentro con "- ").
+  Entre 3 y 6 secciones.""",
+
+        "Video externo": """
+Genera la referencia a un video/curso EXTERNO (YouTube u oficial) sobre una
+herramienta técnica de terceros.
+- titulo: Título del recurso
+- url: URL del video/curso (YouTube u oficial). Si no tenés una URL confiable,
+  dejala vacía para que Learning la complete.
+- descripcion: Qué se aprende y por qué es relevante para este curso""",
+
         "Interactivo": """
 Genera contenido interactivo con botones/acordeones.
 - titulo: Título de la sección

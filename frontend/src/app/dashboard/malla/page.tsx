@@ -44,12 +44,14 @@ import {
 const TIPO_RECURSO_ICONS: Record<string, string> = {
   "Video avatar": "🎬",
   "Video": "📹",
+  "Manual": "📖",
   "Interactivo": "🖱️",
   "Infografía": "📊",
   "Comparador": "⚖️",
   "Flashcards": "🃏",
   "Caso práctico": "💼",
   "Quiz": "❓",
+  "Video externo": "▶️",
 };
 
 const ETAPA_COLORS: Record<string, string> = {
@@ -85,6 +87,9 @@ export default function MallaPage() {
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Learning decide si la IA puede incluir cursos externos (YouTube/oficiales)
+  // para herramientas técnicas de terceros (Slack, HubSpot, etc.).
+  const [permitirExternos, setPermitirExternos] = useState(false);
 
   // For showing in-progress work
   const [enProcesoList, setEnProcesoList] = useState<SolicitudListItem[]>([]);
@@ -173,6 +178,8 @@ export default function MallaPage() {
           solicitud.perfil_salida?.status === "aprobado"
             ? solicitud.perfil_salida.contenido
             : undefined,
+        permitir_externos: permitirExternos,
+        cursos_externos: solicitud.intake?.cursos_externos || [],
       });
       setMallaId(result.id);
       setMallaItems(result.malla);
@@ -493,6 +500,26 @@ export default function MallaPage() {
                         </p>
                       )}
                     </div>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <input
+                        type="checkbox"
+                        checked={permitirExternos}
+                        onChange={(e) => setPermitirExternos(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 accent-brand"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium text-gray-800">
+                          Permitir cursos externos (YouTube / oficiales)
+                        </span>
+                        <span className="mt-0.5 block text-xs text-gray-500">
+                          Para herramientas técnicas de terceros (Slack, HubSpot, Excel…) la IA podrá
+                          sumar recursos tipo &quot;Video externo&quot; con enlaces a videos o cursos públicos.
+                          {solicitud?.intake?.cursos_externos?.length
+                            ? ` El solicitante recomendó ${solicitud.intake.cursos_externos.length} curso(s).`
+                            : ""}
+                        </span>
+                      </span>
+                    </label>
                     <div className="flex gap-2">
                       <Button
                         onClick={handleGenerateMalla}

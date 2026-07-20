@@ -58,7 +58,12 @@ export default function ConfiguracionPage() {
     lms_base_url: "",
     lms_token: "",
     lms_categoria: "",
+    ai_mode: "max_local",
+    ai_api_key: "",
+    ai_budget: "",
   });
+  const [aiKeyGuardada, setAiKeyGuardada] = useState(false);
+  const [aiSpent, setAiSpent] = useState(0);
   const [lmsTokenGuardado, setLmsTokenGuardado] = useState(false);
   const [probandoLms, setProbandoLms] = useState(false);
   const [lmsResultado, setLmsResultado] = useState<string | null>(null);
@@ -120,8 +125,13 @@ export default function ConfiguracionPage() {
       lms_base_url: miEmpresa.lms_integration?.base_url || "",
       lms_token: "",
       lms_categoria: miEmpresa.lms_integration?.categoria_id?.toString() || "",
+      ai_mode: miEmpresa.ai_billing?.mode || "max_local",
+      ai_api_key: "",
+      ai_budget: miEmpresa.ai_billing?.budget_usd != null ? String(miEmpresa.ai_billing.budget_usd) : "",
     });
     setLmsTokenGuardado(Boolean(miEmpresa.lms_integration?.token_configurado));
+    setAiKeyGuardada(Boolean(miEmpresa.ai_billing?.api_key_configurada));
+    setAiSpent(miEmpresa.ai_billing?.spent_usd || 0);
   }, [miEmpresa]);
 
   const handleProbarLms = async () => {
@@ -189,6 +199,12 @@ export default function ConfiguracionPage() {
           ...(form.lms_categoria ? { categoria_id: parseInt(form.lms_categoria) } : {}),
         };
       }
+      // Facturación de IA: mode + key (si se tipeó una nueva); budget solo superadmin.
+      const ai: Record<string, unknown> = { mode: form.ai_mode };
+      if (form.ai_api_key.trim()) ai.anthropic_api_key = form.ai_api_key.trim();
+      if (isSuperadmin && form.ai_budget.trim()) ai.budget_usd = parseFloat(form.ai_budget);
+      payload.ai_billing = ai;
+
       if (isSuperadmin) {
         payload.dominios = splitList(form.dominios);
         payload.learning_domains = splitList(form.learning_domains);
@@ -425,6 +441,80 @@ export default function ConfiguracionPage() {
             protocolo <b>REST</b> (Administración del sitio → Funciones avanzadas / Plugins →
             Servicios web), y crear un <b>token</b> para un usuario con permiso de crear cursos.
             El token se guarda en el backend y nunca vuelve al navegador.
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* IA del agente — facturación */}
+      <Card>
+        <CardHeader>
+          <CardTitle>🧠 IA del agente — facturación</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className={labelCls}>Cómo se paga la generación con IA</label>
+            <select className={inputCls} value={form.ai_mode} onChange={(e) => set("ai_mode", e.target.value)}>
+              <option value="max_local">Local (suscripción del CLI) — solo desarrollo local</option>
+              <option value="byok">API key propia (BYOK) — la empresa paga sus tokens</option>
+              <option value="platform">Plataforma — usamos nuestra key + budget</option>
+            </select>
+            <p className={hintCls}>
+              &quot;Local&quot; solo anda corriendo el agent-service en tu máquina. Para producción: BYOK o Plataforma.
+            </p>
+          </div>
+
+          {form.ai_mode === "byok" && (
+            <div className="md:col-span-2">
+              <label className={labelCls}>API key de Anthropic</label>
+              <input
+                type="password"
+                className={inputCls}
+                value={form.ai_api_key}
+                placeholder={aiKeyGuardada ? "•••••• (guardada — tipeá para reemplazar)" : "sk-ant-..."}
+                onChange={(e) => set("ai_api_key", e.target.value)}
+              />
+              <p className={hintCls}>Se guarda en el backend y nunca vuelve al navegador. La empresa paga su consumo directo a Anthropic.</p>
+            </div>
+          )}
+
+          {form.ai_mode === "platform" && (
+            <>
+              <div>
+                <label className={labelCls}>
+                  Budget mensual (US$) {!isSuperadmin && <span className="font-normal text-gray-400">(solo superadmin)</span>}
+                </label>
+                <input
+                  className={inputCls}
+                  value={form.ai_budget}
+                  disabled={!isSuperadmin}
+                  placeholder="ej. 50"
+                  onChange={(e) => set("ai_budget", e.target.value)}
+                />
+                <p className={hintCls}>Al alcanzarlo se bloquean nuevas generaciones hasta el próximo mes.</p>
+              </div>
+              <div>
+                <label className={labelCls}>Gasto este mes</label>
+                <div className="rounded-lg border border-gray-200 p-2.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-semibold">US${aiSpent.toFixed(2)}</span>
+                    <span className="text-gray-400">{form.ai_budget ? `de US$${form.ai_budget}` : "sin límite"}</span>
+                  </div>
+                  {form.ai_budget && (
+                    <div className="mt-1 h-2 w-full rounded-full bg-gray-100">
+                      <div
+                        className="h-2 rounded-full bg-brand"
+                        style={{ width: `${Math.min(100, (aiSpent / (parseFloat(form.ai_budget) || 1)) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 md:col-span-2">
+            Generar un recurso con el agente cuesta ~US$0.70 (Sonnet, modo optimizado). En modo
+            <b> Plataforma</b> el gasto se acumula por empresa y se corta al llegar al budget.
           </div>
         </CardContent>
       </Card>

@@ -24,12 +24,17 @@ export interface AgentJob {
 }
 
 export interface AgentImage { name: string; dataUrl: string }
+// Documentos de referencia (PDF/DOCX/TXT/MD) que el agente puede leer con Read.
+export interface AgentDoc { name: string; dataUrl: string }
 
 interface StartOpts {
   instruction: string;
   model: string;
   seedHtml: string;
   images?: AgentImage[];
+  docs?: AgentDoc[];
+  // "lite" = verificación económica (1 render, cap de turnos); "full" = exhaustiva.
+  verifyMode?: "lite" | "full";
 }
 
 interface Ctx {
@@ -88,7 +93,7 @@ export function AgentJobsProvider({ children }: { children: ReactNode }) {
         const resp = await fetch(`${AGENT_URL}/agent/edit`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-          body: JSON.stringify({ instruction: instr, model: opts.model, sessionKey: key, seedHtml: opts.seedHtml, images: opts.images || [] }),
+          body: JSON.stringify({ instruction: instr, model: opts.model, sessionKey: key, seedHtml: opts.seedHtml, images: opts.images || [], docs: opts.docs || [], verifyMode: opts.verifyMode || "full" }),
         });
         if (!resp.body) throw new Error("Sin stream de respuesta");
         const reader = resp.body.getReader();

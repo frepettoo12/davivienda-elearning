@@ -13,8 +13,8 @@ import {
   Guion,
   SolicitudListItem,
 } from "@/lib/api";
-import { AGENT_URL, composeSplitVideo, composeSlidesVideo, iterarGuionRequest } from "@/lib/api";
-import { useAgentJobs, type AgentImage } from "@/contexts/AgentJobsContext";
+import { AGENT_URL, composeSplitVideo, composeSlidesVideo, iterarGuionRequest, VOCES, AVATARES } from "@/lib/api";
+import { useAgentJobs, type AgentImage, type AgentDoc } from "@/contexts/AgentJobsContext";
 import { openResourceInNewTab, generateResourceHTML } from "@/lib/resource-renderer";
 import { Brand, DEFAULT_BRAND, safeFont } from "@/lib/brand";
 import { useCompany, useWsPreviewSrc } from "@/contexts/CompanyContext";
@@ -297,7 +297,7 @@ export default function ContenidoPage() {
   };
 
   // Generate audio for a resource
-  const handleGenerateAudio = async (item: MallaItem) => {
+  const handleGenerateAudio = async (item: MallaItem, voiceId?: string) => {
     const guion = getGuionForItem(item.id);
     if (!guion || !mallaId) return;
 
@@ -311,7 +311,7 @@ export default function ContenidoPage() {
     setError(null);
 
     try {
-      const result = await generarAudio(mallaId, item.id, voiceover);
+      const result = await generarAudio(mallaId, item.id, voiceover, voiceId);
       setGenerations(prev => ({
         ...prev,
         [item.id]: {
@@ -331,7 +331,7 @@ export default function ContenidoPage() {
   };
 
   // Generate video (HeyGen) after audio is ready
-  const handleGenerateVideo = async (item: MallaItem) => {
+  const handleGenerateVideo = async (item: MallaItem, avatarId?: string) => {
     const gen = generations[item.id];
     if (!gen?.audioUrl || !mallaId) return;
 
@@ -339,7 +339,7 @@ export default function ContenidoPage() {
     setError(null);
 
     try {
-      const result = await generarVideo(mallaId, item.id, gen.audioUrl);
+      const result = await generarVideo(mallaId, item.id, gen.audioUrl, avatarId);
       setGenerations(prev => ({
         ...prev,
         [item.id]: {
@@ -600,8 +600,8 @@ export default function ContenidoPage() {
                         gen={selectedGen}
                         mallaId={mallaId || ""}
                         generating={generatingId === selectedMallaItem.id}
-                        onGenerateAudio={() => handleGenerateAudio(selectedMallaItem)}
-                        onGenerateVideo={() => handleGenerateVideo(selectedMallaItem)}
+                        onGenerateAudio={(voiceId) => handleGenerateAudio(selectedMallaItem, voiceId)}
+                        onGenerateVideo={(avatarId) => handleGenerateVideo(selectedMallaItem, avatarId)}
                       />
                     </TabsContent>
                   )}
@@ -676,6 +676,74 @@ const MUSIC_LIBRARY = [
   { nombre: "SoundHelix 8", mood: "Energético", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3", credito: "SoundHelix · uso libre" },
 ];
 
+// Qué significa "alta calidad" para cada tipo de recurso (guía para el agente).
+const TIPO_CALIDAD: Record<string, string> = {
+  "Manual": "Documento de referencia serio: 4-6 secciones bien desarrolladas (2-4 párrafos c/u), con índice navegable arriba, ejemplos concretos, listas donde ayuden y notas/callouts destacados.",
+  "Infografía": "Visualización de impacto: un dato/estadística destacada, 3-6 bloques con ícono + título + explicación breve, y una jerarquía visual fuerte.",
+  "Comparador": "Tabla comparativa clara: encabezados de columna, filas por aspecto, y resaltado de las diferencias clave. Interactiva (hover/resaltado) si suma.",
+  "Interactivo": "Acordeones o tarjetas que revelan información al hacer clic, con una instrucción clara y microinteracciones suaves.",
+  "Flashcards": "Tarjetas que se voltean (frente = pregunta/concepto, dorso = respuesta), navegables (anterior/siguiente) y con animación de flip.",
+  "Caso práctico": "Escenario realista + 2-4 decisiones con opciones, feedback inmediato y específico por opción, y un cierre con la lección.",
+  "Quiz": "Preguntas de opción múltiple con feedback y puntaje final. CRÍTICO: al finalizar reportá el score al contenedor con window.parent.postMessage({type:'scorm-quiz-score', score, total}, '*') para el tracking SCORM.",
+  "Video avatar": "Panel/slide de apoyo del avatar: título y bullets clave muy bien jerarquizados y legibles (el avatar y el video se componen aparte).",
+  "Video": "Slides de apoyo: portada + bullets/datos por slide, limpios, legibles y con buen contraste.",
+  "Video externo": "Tarjeta con el video de YouTube embebido (o enlace claro) + una descripción de qué se aprende y por qué es relevante.",
+};
+
+// Arma la instrucción para que el agente CREE el recurso completo de alta calidad
+// (contenido + presentación), usando el guión rápido como borrador de partida.
+function buildResourceCreatePrompt(item: MallaItem, guion: Guion, brandName: string): string {
+  const tipo = item.tipo_recurso;
+  const calidad = TIPO_CALIDAD[tipo] || "Recurso claro, bien diseñado y autocontenido.";
+  let contenidoStr = "";
+  try { contenidoStr = JSON.stringify(guion.contenido || {}, null, 0).slice(0, 4000); } catch { /* ignore */ }
+  return `Creá desde cero un recurso e-learning de tipo "${tipo}" de ALTA CALIDAD para ${brandName}, completo y 100% autocontenido en index.html (todo el HTML/CSS/JS inline; sin librerías ni assets externos, salvo imágenes que ya estén en el directorio).
+
+BRIEF DEL RECURSO
+- Recurso: ${item.recurso}
+- Bloque: ${item.bloque}
+- Objetivo de aprendizaje: ${item.objetivo}
+- Descripción: ${item.descripcion}
+- Contenido base (borrador de un generador rápido): ${contenidoStr}
+  → Es SOLO un punto de partida. Mejorá y profundizá el contenido: redacción profesional, precisa y clara, con ejemplos concretos y aplicables. Nada de bullets genéricos ni relleno.
+
+TIPO "${tipo}": ${calidad}
+
+EXIGENCIAS DE CALIDAD (obligatorias)
+- Diseño moderno y pulido con la marca (colores/tipografías definidos en las instrucciones del sistema): buen espaciado, jerarquía visual y contraste.
+- Responsive de verdad: sin overflow horizontal en mobile (390px).
+- Interactividad fluida donde el tipo del recurso lo pida.
+
+RESPETÁ EL BRIEF: no cambies ni inventes datos numéricos, porcentajes, cifras ni nombres propios que estén en el contenido base; usalos tal cual. Si un dato no está, no lo inventes.
+
+Devolvé el index.html final.`;
+}
+
+// El agent-service corre local sobre http. Si la página es https (URL de prod),
+// el browser bloquea la llamada (mixed content). Detectamos ese caso para avisar
+// con claridad en vez del confuso "Failed to fetch".
+function useAgentBlocked(): boolean {
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    try {
+      setBlocked(window.location.protocol === "https:" && AGENT_URL.startsWith("http://"));
+    } catch { /* ignore */ }
+  }, []);
+  return blocked;
+}
+
+// Banner que explica que el Modo Agente solo corre desde localhost.
+function AgentBlockedBanner() {
+  return (
+    <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800">
+      ⚠️ El Modo Agente (generar/editar recurso, componer video) corre en un servicio{" "}
+      <b>local</b> y esta página es <b>https</b>, así que el navegador bloquea la conexión.
+      Abrí <b>http://localhost:3000</b> para usar estas funciones. En la URL pública no funcionan
+      hasta deployar el agent-service.
+    </div>
+  );
+}
+
 function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
   item: MallaItem;
   guion: Guion;
@@ -696,9 +764,11 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
   const [model, setModel] = useState("claude-sonnet-4-6");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [previewKey, setPreviewKey] = useState(0);
+  const agentBlocked = useAgentBlocked();
   // HTML editado existente, o un job en curso/terminado → mostrar workspace en vivo.
   const [hasAgentHtml, setHasAgentHtml] = useState(() => Boolean(guion.contenido.html) || Boolean(job));
   const [images, setImages] = useState<AgentImage[]>([]);
+  const [docs, setDocs] = useState<AgentDoc[]>([]);
   // Mini-form "Agregar audio"
   const [showAudio, setShowAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
@@ -733,9 +803,10 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [events.length]);
 
-  const run = (override?: string) => {
-    start(sessionKey, { instruction: override ?? instruction, model, seedHtml, images });
+  const run = (override?: string, verifyMode: "lite" | "full" = "full") => {
+    start(sessionKey, { instruction: override ?? instruction, model, seedHtml, images, docs, verifyMode });
     setImages([]);
+    setDocs([]);
   };
 
   return (
@@ -806,10 +877,28 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
               </span>
               <span className="ml-auto text-xs text-gray-400">{status}</span>
             </div>
+
+            {agentBlocked && <AgentBlockedBanner />}
+
+            {/* Crear el recurso completo con el agente (alta calidad, agéntico) */}
+            <button
+              type="button"
+              onClick={() => run(buildResourceCreatePrompt(item, guion, company.nombre), "lite")}
+              disabled={running || agentBlocked}
+              className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-red-600 to-red-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:from-red-700 hover:to-red-600 disabled:opacity-60"
+              title={agentBlocked ? "Disponible solo desde http://localhost:3000" : "El agente Claude escribe el contenido y el diseño desde cero, renderiza y se autocorrige (modo optimizado)"}
+            >
+              {running ? "Generando…" : "✨ Generar recurso con IA (alta calidad)"}
+            </button>
+            <p className="mb-2 text-[11px] leading-snug text-gray-400">
+              Escribe el contenido y el diseño desde cero con el agente (render + autocorrección).
+              Reemplaza el borrador rápido. Abajo podés pedir ajustes puntuales.
+            </p>
+
             <textarea
               value={instruction}
               onChange={(e) => setDraft(sessionKey, e.target.value)}
-              placeholder="Ej: Hacé el comparador más visual con tarjetas, fondo degradado y los colores de la marca. Arreglá el overflow en mobile."
+              placeholder="Ajuste puntual. Ej: Hacé el comparador más visual con tarjetas y arreglá el overflow en mobile."
               className="h-24 w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm focus:border-red-500 focus:outline-none"
             />
             <div className="mt-2 space-y-2">
@@ -833,6 +922,7 @@ function ResourceAgentEditor({ item, guion, mallaId, onUpdate }: {
                   🎵 Agregar audio
                 </button>
                 <ImageAttach images={images} setImages={setImages} />
+                <DocAttach docs={docs} setDocs={setDocs} />
                 <Button size="sm" onClick={() => run()} disabled={running} className="ml-auto">
                   {running ? "Trabajando…" : "Ejecutar agente"}
                 </Button>
@@ -1124,6 +1214,57 @@ function ImageAttach({ images, setImages }: {
   );
 }
 
+// Adjunta documentos de referencia (PDF/DOCX/TXT/MD/CSV) para que el agente los
+// lea con Read y use su contenido como fuente. Mismo patrón que ImageAttach.
+function DocAttach({ docs, setDocs }: {
+  docs: AgentDoc[];
+  setDocs: (fn: (prev: AgentDoc[]) => AgentDoc[]) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const okExt = /\.(pdf|docx?|txt|md|csv)$/i;
+  const onFiles = async (files: FileList | null) => {
+    if (!files) return;
+    for (const f of Array.from(files).slice(0, 6)) {
+      if (!okExt.test(f.name) || f.size > 10 * 1024 * 1024) continue;
+      const dataUrl = await new Promise<string>((res) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result));
+        r.readAsDataURL(f);
+      });
+      setDocs((prev) => (prev.length >= 6 ? prev : [...prev, { name: f.name, dataUrl }]));
+    }
+    if (ref.current) ref.current.value = "";
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        className="flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+        title="Adjuntar documentos de referencia (PDF, DOCX, TXT, MD, CSV)"
+      >
+        📄 Documento
+      </button>
+      <input ref={ref} type="file" accept=".pdf,.doc,.docx,.txt,.md,.csv" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
+      <div className="flex flex-wrap gap-1.5">
+        {docs.map((d, i) => (
+          <span key={i} className="flex items-center gap-1 rounded border bg-gray-50 px-1.5 py-0.5 text-[11px] text-gray-700" title={d.name}>
+            <span className="max-w-[110px] truncate">{d.name}</span>
+            <button
+              type="button"
+              onClick={() => setDocs((prev) => prev.filter((_, j) => j !== i))}
+              className="text-gray-500 hover:text-gray-800"
+              title="Quitar"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Editor IA del panel del video split (Claude Agent SDK). Edita el HTML del slide
 // del lado derecho; al terminar devuelve el HTML por onHtmlChange.
 function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW = 1248, contentH = 1080 }: {
@@ -1145,6 +1286,7 @@ function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW =
   // en vivo (sobrevive cambiar de pestaña/recurso).
   const [hasEdited, setHasEdited] = useState(() => Boolean(job));
   const [images, setImages] = useState<AgentImage[]>([]);
+  const [docs, setDocs] = useState<AgentDoc[]>([]);
   const applied = useRef(0);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -1212,11 +1354,12 @@ function PanelEditor({ sessionKey, seedHtml, onHtmlChange, avatarUrl, contentW =
             {AGENT_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
           <ImageAttach images={images} setImages={setImages} />
+          <DocAttach docs={docs} setDocs={setDocs} />
           <Button
             size="sm"
             className="ml-auto"
             disabled={running || !instruction.trim()}
-            onClick={() => { start(sessionKey, { instruction, model, seedHtml, images }); setImages(() => []); }}
+            onClick={() => { start(sessionKey, { instruction, model, seedHtml, images, docs }); setImages(() => []); setDocs(() => []); }}
           >
             {running ? "Trabajando…" : "Editar con IA"}
           </Button>
@@ -1243,16 +1386,26 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
   gen?: ResourceGeneration;
   mallaId: string;
   generating: boolean;
-  onGenerateAudio: () => void;
-  onGenerateVideo: () => void;
+  onGenerateAudio: (voiceId?: string) => void;
+  onGenerateVideo: (avatarId?: string) => void;
 }) {
   const { company } = useCompany();
   const isVideoAvatar = item.tipo_recurso === "Video avatar";
   const voiceover = guion.contenido.voiceover || guion.contenido.texto;
 
+  // Voz (ElevenLabs) y avatar (HeyGen) seleccionados para esta generación.
+  // Default: el primero del catálogo (= el default del pipeline). El usuario
+  // puede cambiarlo antes de generar.
+  const [voiceId, setVoiceId] = useState<string>(VOCES[0].id);
+  const [avatarId, setAvatarId] = useState<string>(AVATARES[0].id);
+  const vozSel = VOCES.find((v) => v.id === voiceId);
+  const avatarSel = AVATARES.find((a) => a.id === avatarId);
+
   const [composing, setComposing] = useState(false);
   const [composedUrl, setComposedUrl] = useState<string | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
+  // Subtítulos opcionales quemados en el video (a partir del voiceover).
+  const [subtitles, setSubtitles] = useState(false);
   // HTML del slide/panel. Editable con el agente; persistido. Avatar → panel 1248x1080;
   // Video (slides) → slide full-screen 1920x1080.
   const slideCount = Array.isArray(guion.contenido.slides)
@@ -1268,12 +1421,13 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
     setComposeError(null);
     try {
       let url: string;
+      const subOpts = { subtitles, subtitleText: voiceover || "" };
       if (isVideoAvatar) {
         if (!gen?.videoUrl) throw new Error("Falta el avatar (generá el video primero)");
-        ({ url } = await composeSplitVideo(gen.videoUrl, panelHtml, `${item.id}_split`));
+        ({ url } = await composeSplitVideo(gen.videoUrl, panelHtml, `${item.id}_split`, subOpts));
       } else {
         if (!gen?.audioUrl) throw new Error("Falta el audio (generalo primero)");
-        ({ url } = await composeSlidesVideo(gen.audioUrl, panelHtml, `${item.id}_slides`, slideCount));
+        ({ url } = await composeSlidesVideo(gen.audioUrl, panelHtml, `${item.id}_slides`, slideCount, subOpts));
       }
       setComposedUrl(`${url}?t=${Date.now()}`);
       // Persistir el video compuesto (URL de Storage) para preview/SCORM y que sobreviva al recargar.
@@ -1286,6 +1440,29 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
       setComposing(false);
     }
   };
+
+  // Toggle de subtítulos, reutilizado en ambos flujos de composición.
+  const subtitlesToggle = (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+      <input
+        type="checkbox"
+        checked={subtitles}
+        onChange={(e) => setSubtitles(e.target.checked)}
+        className="h-4 w-4 accent-red-600"
+      />
+      Agregar subtítulos al video (a partir del voiceover)
+    </label>
+  );
+
+  // Reproductor del audio generado (para escucharlo en el paso de composición).
+  const audioPlayer = gen?.audioUrl ? (
+    <div className="mb-3 rounded-lg border bg-gray-50 p-2">
+      <p className="mb-1 text-xs font-medium text-gray-600">🔊 Audio del recurso</p>
+      <audio controls className="w-full">
+        <source src={gen.audioUrl} type="audio/mpeg" />
+      </audio>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-6">
@@ -1300,11 +1477,28 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
             </div>
             <div>
               <h4 className="font-medium">Generar Audio</h4>
-              <p className="text-sm text-gray-500">ElevenLabs - Voz Valeria</p>
+              <p className="text-sm text-gray-500">ElevenLabs · Voz {vozSel?.nombre || "—"}</p>
             </div>
           </div>
           <StatusBadge status={gen?.audioStatus} />
         </div>
+
+        {/* Selector de voz: solo cuando aún no se generó el audio. */}
+        {!(gen?.audioStatus === "completed" && gen.audioUrl) &&
+          gen?.audioStatus !== "processing" && gen?.audioStatus !== "pending" && (
+          <div className="mb-3">
+            <label className="mb-1 block text-xs font-medium text-gray-600">Voz</label>
+            <select
+              value={voiceId}
+              onChange={(e) => setVoiceId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              {VOCES.map((v) => (
+                <option key={v.id} value={v.id}>{v.nombre} — {v.estilo}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {gen?.audioStatus === "completed" && gen.audioUrl ? (
           <div className="space-y-2">
@@ -1321,7 +1515,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
             Generando audio con ElevenLabs...
           </div>
         ) : (
-          <Button onClick={onGenerateAudio} disabled={generating || !voiceover} className="w-full">
+          <Button onClick={() => onGenerateAudio(voiceId)} disabled={generating || !voiceover} className="w-full">
             {generating ? (
               <span className="flex items-center gap-2">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -1351,11 +1545,29 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
               </div>
               <div>
                 <h4 className="font-medium">Generar Video con Avatar</h4>
-                <p className="text-sm text-gray-500">HeyGen - Avatar Hada LivelyGestures</p>
+                <p className="text-sm text-gray-500">HeyGen · Avatar {avatarSel?.nombre || "—"}</p>
               </div>
             </div>
             <StatusBadge status={gen?.videoStatus} />
           </div>
+
+          {/* Selector de avatar: solo cuando aún no se generó el video. */}
+          {!(gen?.videoStatus === "completed" && gen.videoUrl) &&
+            gen?.videoStatus !== "processing" && gen?.videoStatus !== "pending" && (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-gray-600">Avatar</label>
+              <select
+                value={avatarId}
+                onChange={(e) => setAvatarId(e.target.value)}
+                disabled={!gen?.audioUrl}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
+              >
+                {AVATARES.map((a) => (
+                  <option key={a.id} value={a.id}>{a.nombre} — {a.estilo}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {gen?.videoStatus === "completed" && gen.videoUrl ? (
             <div className="space-y-2">
@@ -1373,7 +1585,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
             </div>
           ) : (
             <Button
-              onClick={onGenerateVideo}
+              onClick={() => onGenerateVideo(avatarId)}
               disabled={generating || !gen?.audioUrl}
               className="w-full"
             >
@@ -1410,6 +1622,9 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
             </div>
           </div>
 
+          {/* Reproducir el audio generado */}
+          {audioPlayer}
+
           {/* Editor IA del panel (lado derecho del split) */}
           <div className="mb-3">
             <PanelEditor
@@ -1444,6 +1659,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
             </div>
           ) : (
             <div className="space-y-2">
+              {subtitlesToggle}
               <Button onClick={handleCompose} className="w-full bg-red-600 hover:bg-red-700">
                 🎬 Componer video split
               </Button>
@@ -1474,6 +1690,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
 
           {gen?.audioStatus === "completed" ? (
             <div className="space-y-3">
+              {audioPlayer}
               <div className="mb-1">
                 <PanelEditor
                   sessionKey={`${mallaId || "m"}_${item.id}_slide`}
@@ -1503,6 +1720,7 @@ function GenerationPanel({ item, guion, gen, mallaId, generating, onGenerateAudi
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {subtitlesToggle}
                   <Button onClick={handleCompose} className="w-full bg-red-600 hover:bg-red-700">🎬 Componer video (slides + voz)</Button>
                   {composeError && <p className="text-sm text-red-600">{composeError}</p>}
                 </div>

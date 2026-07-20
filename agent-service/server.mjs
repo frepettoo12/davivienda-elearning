@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { runAgent } from "./agent.mjs";
 import { composeSplit, composeSlides, COMPOSED_ROOT } from "./compose.mjs";
-import { requireAuth, brandOf, DEFAULT_COMPANY_ID } from "./tenant.mjs";
+import { requireAuth, brandOf, DEFAULT_COMPANY_ID, resolveBilling, addAiSpend } from "./tenant.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +77,40 @@ function saveImages(cwd, images) {
   return saved;
 }
 
+// Guarda documentos de referencia (PDF/DOCX/TXT/MD) en el workspace para que el
+// agente los lea con la tool Read y use su contenido como fuente.
+const _DOC_EXT = {
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/msword": "doc",
+  "text/plain": "txt",
+  "text/markdown": "md",
+  "text/csv": "csv",
+};
+function saveDocs(cwd, docs) {
+  if (!Array.isArray(docs)) return [];
+  const saved = [];
+  for (const doc of docs.slice(0, 6)) {
+    const m = /^data:([^;]+);base64,(.+)$/.exec(doc?.dataUrl || "");
+    if (!m) continue;
+    const rawName = String(doc.name || "documento");
+    // Extensión: la del MIME conocido o la del nombre original si es un tipo de doc.
+    let ext = _DOC_EXT[m[1]];
+    if (!ext) {
+      const fromName = rawName.split(".").pop()?.toLowerCase();
+      if (fromName && Object.values(_DOC_EXT).includes(fromName)) ext = fromName;
+    }
+    if (!ext) continue; // no es un documento soportado
+    const base = rawName.replace(/[^a-zA-Z0-9_.-]/g, "_").replace(/\.[^.]+$/, "");
+    const name = `${base}.${ext}`.slice(0, 60);
+    try {
+      writeFileSync(resolve(cwd, name), Buffer.from(m[2], "base64"));
+      saved.push(name);
+    } catch { /* ignore */ }
+  }
+  return saved;
+}
+
 // Embebe imágenes locales del workspace como data URI en el HTML, para que sea
 // self-contained y funcione fuera del workspace (srcDoc, composición, SCORM).
 const _MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
@@ -104,7 +138,7 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Vary", "Origin");
   }
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Company-Id");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -156,13 +190,13 @@ const randSuffix = () => Math.random().toString(36).slice(2, 10);
 
 // POST /compose/split — avatar HeyGen + HTML branded → MP4 split (35% avatar / 65% contenido)
 app.post("/compose/split", requireAuth, async (req, res) => {
-  const { avatarUrl, contentHtml, id } = req.body || {};
+  const { avatarUrl, contentHtml, id, subtitles, subtitleText } = req.body || {};
   if (!avatarUrl || typeof avatarUrl !== "string") {
     return res.status(400).json({ error: "Falta 'avatarUrl'" });
   }
   const safeId = `${String(id || `v${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 70)}_${randSuffix()}`;
   try {
-    const { rel, storageUrl } = await composeSplit({ avatarUrl, contentHtml, id: safeId, companyId: req.company?.id });
+    const { rel, storageUrl } = await composeSplit({ avatarUrl, contentHtml, id: safeId, companyId: req.company?.id, subtitles: !!subtitles, subtitleText });
     res.json({ ok: true, url: storageUrl || `/composed/${rel}`, rel });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
@@ -171,13 +205,13 @@ app.post("/compose/split", requireAuth, async (req, res) => {
 
 // POST /compose/slides — slide HTML full-screen + audio → MP4 (sin avatar)
 app.post("/compose/slides", requireAuth, async (req, res) => {
-  const { audioUrl, contentHtml, slideCount, id } = req.body || {};
+  const { audioUrl, contentHtml, slideCount, id, subtitles, subtitleText } = req.body || {};
   if (!audioUrl || typeof audioUrl !== "string") {
     return res.status(400).json({ error: "Falta 'audioUrl'" });
   }
   const safeId = `${String(id || `s${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 70)}_${randSuffix()}`;
   try {
-    const { rel, storageUrl } = await composeSlides({ audioUrl, contentHtml, slideCount, id: safeId, companyId: req.company?.id });
+    const { rel, storageUrl } = await composeSlides({ audioUrl, contentHtml, slideCount, id: safeId, companyId: req.company?.id, subtitles: !!subtitles, subtitleText });
     res.json({ ok: true, url: storageUrl || `/composed/${rel}`, rel });
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
@@ -185,17 +219,25 @@ app.post("/compose/slides", requireAuth, async (req, res) => {
 });
 
 app.post("/agent/edit", requireAuth, async (req, res) => {
-  const { instruction, model, resume, sessionKey, seedHtml, images } = req.body || {};
+  const { instruction, model, resume, sessionKey, seedHtml, images, docs, verifyMode, maxTurns } = req.body || {};
   if (!instruction || typeof instruction !== "string") {
     return res.status(400).json({ error: "Falta 'instruction'" });
   }
   const cwd = resolveWorkspace({ companyId: req.company?.id, sessionKey, seedHtml });
 
-  // Guardar imágenes adjuntas y avisarle al agente que las tiene disponibles.
+  // Guardar imágenes y documentos adjuntos, y avisarle al agente que los tiene.
   const savedImgs = saveImages(cwd, images);
-  const fullInstruction = savedImgs.length
-    ? `${instruction}\n\nIMÁGENES adjuntas disponibles en este directorio (insertalas con <img src="NOMBRE">; podés abrirlas con la tool Read para verlas y replicar su estilo/colores): ${savedImgs.join(", ")}.`
-    : instruction;
+  const savedDocs = saveDocs(cwd, docs);
+  let fullInstruction = instruction;
+  if (savedImgs.length) {
+    fullInstruction += `\n\nIMÁGENES adjuntas disponibles en este directorio (insertalas con <img src="NOMBRE">; podés abrirlas con la tool Read para verlas y replicar su estilo/colores): ${savedImgs.join(", ")}.`;
+  }
+  if (savedDocs.length) {
+    fullInstruction += `\n\nDOCUMENTOS de referencia adjuntos en este directorio (leelos con la tool Read para usar su contenido como fuente del material; NO los copies textual salvo que se pida): ${savedDocs.join(", ")}.`;
+  }
+
+  // Facturación: qué API key usar (BYOK/plataforma) y si el budget lo permite.
+  const billing = resolveBilling(req.company);
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -206,11 +248,26 @@ app.post("/agent/edit", requireAuth, async (req, res) => {
   const send = (event, data) =>
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
+  // Gate de billing: si BYOK sin key o plataforma sin budget → no corremos.
+  if (!billing.ok) {
+    send("error", { message: billing.message || "IA no disponible para esta empresa." });
+    send("done", { sessionKey });
+    return res.end();
+  }
+
   try {
     const summary = await runAgent(
-      { instruction: fullInstruction, cwd, model, resume, brand: brandOf(req.company) },
+      { instruction: fullInstruction, cwd, model, resume, brand: brandOf(req.company),
+        verifyMode: verifyMode === "lite" ? "lite" : "full",
+        maxTurns: typeof maxTurns === "number" ? maxTurns : undefined,
+        apiKey: billing.apiKey || undefined },
       (e) => send(e.kind, e)
     );
+    // Acumular gasto real (solo cuando hubo costo con key propia/plataforma; en
+    // max_local/dev con sesión Max no cobramos). El costUsd lo reporta el SDK.
+    if (billing.mode !== "max_local" && summary?.costUsd > 0) {
+      await addAiSpend(req.company?.id, summary.costUsd);
+    }
     // Devolvemos el HTML resultante (con imágenes embebidas) para que el frontend lo
     // persista y funcione fuera del workspace (srcDoc, composición, SCORM).
     let html;

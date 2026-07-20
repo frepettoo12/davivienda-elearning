@@ -92,6 +92,14 @@ export interface MiEmpresa {
     categoria_id?: number;
     token_configurado?: boolean;
   } | null;
+  // Facturación de IA (agente): la API key nunca se devuelve (solo si está o no).
+  ai_billing?: {
+    mode?: "max_local" | "byok" | "platform";
+    api_key_configurada?: boolean;
+    budget_usd?: number | null;
+    spent_usd?: number;
+    period?: string | null;
+  };
 }
 
 export function brandFromMiEmpresa(e: MiEmpresa): Brand {
