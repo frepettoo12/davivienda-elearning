@@ -237,7 +237,7 @@ app.post("/agent/edit", requireAuth, async (req, res) => {
   }
 
   // Facturación: qué API key usar (BYOK/plataforma) y si el budget lo permite.
-  const billing = resolveBilling(req.company);
+  const billing = await resolveBilling(req.company);
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",

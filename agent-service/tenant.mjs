@@ -13,6 +13,7 @@
 import { initializeApp, applicationDefault, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 
 export const DEFAULT_COMPANY_ID = "davivienda";
 
@@ -199,9 +200,32 @@ function currentPeriod() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+// Lector de la API key BYOK desde Secret Manager (nunca de Firestore). Cacheada.
+let _sm;
+const _byokCache = new Map(); // companyId -> { key, exp }
+function secretName(companyId) {
+  const cid = String(companyId || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 200);
+  return `projects/${PROJECT_ID}/secrets/anthropic-key-${cid}/versions/latest`;
+}
+async function getByokKey(companyId) {
+  if (!companyId) return "";
+  const hit = _byokCache.get(companyId);
+  if (hit && hit.exp > Date.now()) return hit.key;
+  let key = "";
+  try {
+    _sm ||= new SecretManagerServiceClient();
+    const [v] = await _sm.accessSecretVersion({ name: secretName(companyId) });
+    key = v.payload?.data?.toString("utf8") || "";
+  } catch (e) {
+    if (e?.code !== 5) console.error("getByokKey:", e?.message || e); // 5 = NOT_FOUND
+  }
+  _byokCache.set(companyId, { key, exp: Date.now() + TTL });
+  return key;
+}
+
 // Decide qué API key usar y si se puede correr (budget). Aplica reset mensual
 // implícito: si el período guardado cambió, el gasto vigente cuenta como 0.
-export function resolveBilling(company) {
+export async function resolveBilling(company) {
   const b = (company && company.ai_billing) || {};
   const mode = b.mode || "max_local";
   const period = currentPeriod();
@@ -209,7 +233,8 @@ export function resolveBilling(company) {
   const budget = Number(b.budget_usd) || 0;
 
   if (mode === "byok") {
-    const key = b.anthropic_api_key || "";
+    // La key vive en Secret Manager (no en Firestore).
+    const key = await getByokKey(company?.id);
     return { mode, apiKey: key, budget, spent, ok: !!key,
       message: key ? "" : "Falta la API key de Anthropic (BYOK). Cargala en Configuración → IA." };
   }

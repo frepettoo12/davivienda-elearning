@@ -1228,6 +1228,45 @@ chat gpt-4o single-shot (`iterar_guion_endpoint`) como motor de iteración de co
   si no `verifyIdToken` tira "Unable to detect a Project Id" → cae a davivienda e ignora la empresa activa
   (brand incorrecta + preview `/ws/{empresa}` 403/404).
 
+### Facturación de IA + Secret Manager + Local Runner (Jul 2026)
+**3 modos de pago del agente** (`companies/{id}.ai_billing.mode`, default `max_local`):
+- `max_local` → sin API key: usa la **sesión del CLI de Claude Code** logueado (Max/Pro). SOLO local
+  (no multiusuario en prod = ToS + rate limit). Es el default y no rompe nada.
+- `byok` → la empresa pone su **API key de Anthropic**; se guarda en **Secret Manager**
+  (`anthropic-key-{company_id}`), NUNCA en Firestore (solo el flag `byok_key_set`). La lee el
+  agent-service con `resolveBilling` (cacheada 5 min). Paga la empresa directo a Anthropic.
+- `platform` → key nuestra (`PLATFORM_ANTHROPIC_API_KEY`, env del agent-service / secret de Cloud Run)
+  + **budget mensual por empresa** (`ai_billing.budget_usd`), con **reset automático** por período y
+  **corte** cuando `spent_usd >= budget_usd`. El gasto se acumula tras cada run (`addAiSpend`, transacción).
+
+**Flujo**: server.mjs `/agent/edit` → `await resolveBilling(company)` decide key + budget; si no `ok`
+manda evento `error`+`done`. Tras el run, si mode≠max_local suma el `costUsd` real. La API key se
+inyecta al CLI vía la opción `env` del SDK (`{...process.env, ANTHROPIC_API_KEY: key}`) por request.
+UI: Configuración → "🧠 IA del agente — facturación" (mode + key BYOK enmascarada + budget/gasto;
+budget/reset solo superadmin). Backend `actualizar_empresa` escribe a Secret Manager (`core/secrets.py`).
+
+**Inventario de secretos (todo en Secret Manager, nada en git):**
+- `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `HEYGEN_API_KEY`, `SENDGRID_API_KEY` → **Firebase `SecretParam`**
+  (inyectados por `secrets=[...]` en los endpoints). Anthropic BYOK → Secret Manager por empresa.
+- `functions/.env` = solo config NO sensible (`SENDGRID_FROM`, `APP_URL`, `COMPANIES_SHEET_ID`, `AUTH_ENFORCE`).
+- La **web config de Firebase** (`NEXT_PUBLIC_FIREBASE_API_KEY`) es pública por diseño (va en el bundle);
+  la seguridad la dan las reglas de Firestore/Storage (cerradas) + Auth.
+- ⚠️ Pendiente: la platform key en Cloud Run debe montarse como **secret** (`--set-secrets`), no env plano.
+
+**IAM requerido** (correr una vez): habilitar `secretmanager.googleapis.com`; SA de Functions con
+`roles/secretmanager.admin` (escribir); lector (`secretAccessor`) para el ADC local del agent-service
+y, a futuro, la SA de Cloud Run. Requiere **redeploy** de functions (se agregó `google-cloud-secret-manager`).
+
+**Local Runner (cómo corre el equipo en su máquina):** agent-service (`:8090`) + frontend (`:3000`)
+locales, porque la web pública https NO puede llamar a `http://localhost` (mixed content). Requisitos:
+Node, Chrome, ffmpeg (video), y según la key:
+- **A) suscripción propia** (`max_local`): `ANTHROPIC_API_KEY` vacío + Claude Code logueado. Cuidado: **Pro
+  tiene límites mucho más bajos que Max** → pocas generaciones por ventana de 5h (sirve para probar, no producción).
+- **B) API key propia local (simple)**: `ANTHROPIC_API_KEY=sk-ant-...` en el **`.env` de la RAÍZ** del repo
+  (lo lee `loadApiKey` en server.mjs, gitignored). Sin Secret Manager. Cada uno paga su cuenta.
+- **C) key central de la empresa** (`byok` + Secret Manager): la carga una vez en Configuración; el
+  agent-service local la lee si el ADC del que corre tiene `secretAccessor`. Es el modelo para Cloud Run.
+
 ### Gotchas
 - macOS arm64: si numpy/pandas/lxml dan `incompatible architecture (x86_64)`, reinstalar con `pip install --force-reinstall --no-cache-dir` (eran wheels x86_64 en Mac arm64).
 - El frontend Next.js (16.x) tiene un `AGENTS.md` que avisa que difiere de versiones conocidas → copiar patrones de páginas existentes en vez de asumir.

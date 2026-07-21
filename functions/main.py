@@ -27,7 +27,7 @@ import firebase_admin
 from firebase_admin import firestore, storage
 from firebase_functions import https_fn, options, scheduler_fn
 from firebase_functions.params import SecretParam
-from google.cloud.firestore import SERVER_TIMESTAMP
+from google.cloud.firestore import SERVER_TIMESTAMP, DELETE_FIELD
 
 # Secrets
 OPENAI_API_KEY = SecretParam("OPENAI_API_KEY")
@@ -2181,7 +2181,8 @@ def mi_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.Response:
     ab = c.get("ai_billing") or {}
     payload["ai_billing"] = {
         "mode": ab.get("mode") or "max_local",
-        "api_key_configurada": bool(ab.get("anthropic_api_key")),
+        # La key vive en Secret Manager; en Firestore solo el flag byok_key_set.
+        "api_key_configurada": bool(ab.get("byok_key_set")),
         "budget_usd": ab.get("budget_usd"),
         "spent_usd": ab.get("spent_usd") or 0,
         "period": ab.get("period"),
@@ -2309,8 +2310,23 @@ def actualizar_empresa(req: https_fn.Request, ctx: RequestContext) -> https_fn.R
         mode = str(ab_in.get("mode") or "").strip().lower()
         if mode in ("max_local", "byok", "platform"):
             ab_update["mode"] = mode
+        # API key BYOK: NUNCA en Firestore → va a Secret Manager. En la base solo
+        # queda el flag byok_key_set. Si falla SM (API no habilitada / sin permiso),
+        # devolvemos error claro en vez de guardar la key en texto.
         if "anthropic_api_key" in ab_in:
-            ab_update["anthropic_api_key"] = str(ab_in.get("anthropic_api_key") or "").strip()
+            key = str(ab_in.get("anthropic_api_key") or "").strip()
+            try:
+                from core.secrets import set_byok_key, clear_byok_key
+                if key:
+                    set_byok_key(ctx.company_id, key)
+                    ab_update["byok_key_set"] = True
+                else:
+                    clear_byok_key(ctx.company_id)
+                    ab_update["byok_key_set"] = False
+            except Exception as e:
+                return _error(f"No se pudo guardar la API key en Secret Manager: {e}", 500)
+            # Limpieza defensiva de una key legacy que pudiera haber quedado en texto.
+            ab_update["anthropic_api_key"] = DELETE_FIELD
         if "budget_usd" in ab_in or ab_in.get("reset_spent"):
             if not ctx.is_superadmin:
                 return _error("Solo un superadmin puede fijar el budget o resetear el gasto", 403)
